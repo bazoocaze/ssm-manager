@@ -6,6 +6,7 @@ import sys
 import argparse
 import os
 import configparser
+import fnmatch
 
 # Global configuration dictionary
 CONFIG = {
@@ -26,19 +27,12 @@ def read_config_file():
     config.read(config_path)
     return config
 
-# Function to find the best matching section for a given host pattern
-def find_best_match(config, target):
-    best_match = None
-    best_score = -1
-
+# Function to find the first matching section for a given host pattern
+def find_first_match(config, target):
     for section in config.sections():
         if fnmatch.fnmatch(target, section):
-            score = len(section)  # Simpler scoring: longer patterns are better
-            if score > best_score:
-                best_score = score
-                best_match = section
-
-    return best_match
+            return section
+    return None
 
 # Function to handle client connections for port forwarding
 def handle_client(client_socket, local_port):
@@ -93,21 +87,27 @@ def start_gateway():
 def start_shell(target):
     config = read_config_file()
 
-    if config and target in config.sections():
-        section = config[target]
-        instance_id = section.get('Hostname', target)
-        profile = section.get('Profile')
-        region = section.get('Region')
+    if config:
+        matched_section = find_first_match(config, target)
+        if matched_section:
+            section = config[matched_section]
+            instance_id = section.get('Hostname', target)
+            profile = section.get('Profile')
+            region = section.get('Region')
 
-        aws_command = CONFIG['shell_command'].format(instance_id=instance_id)
+            aws_command = CONFIG['shell_command'].format(instance_id=instance_id)
 
-        if profile:
-            aws_command = f"aws --profile {profile} {aws_command}"
-        if region:
-            aws_command = f"aws --region {region} {aws_command}"
+            if profile:
+                aws_command = f"aws --profile {profile} {aws_command}"
+            if region:
+                aws_command = f"aws --region {region} {aws_command}"
+
+        else:
+            # Fallback to original behavior
+            aws_command = CONFIG['shell_command'].format(instance_id=target)
 
     else:
-        # Fallback to original behavior
+        # No config file found, use the target directly
         aws_command = CONFIG['shell_command'].format(instance_id=target)
 
     subprocess.run(aws_command, shell=True)
