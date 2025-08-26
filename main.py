@@ -3,6 +3,7 @@ import subprocess
 import threading
 import time
 import sys
+import argparse
 
 # Global configuration dictionary
 CONFIG = {
@@ -68,20 +69,20 @@ def start_shell():
     subprocess.run(aws_command, shell=True)
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("Usage: python main.py <command>")
-        print("Commands:")
-        print("  pf     Start port forwarding gateway")
-        print("  shell  Connect to remote host using SSM (no SSH)")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description='SSM Port Forwarding and Shell Access')
+    subparsers = parser.add_subparsers(dest='command', help='Commands')
 
-    command = sys.argv[1]
+    # Subparser for port forwarding
+    pf_parser = subparsers.add_parser('pf', help='Start port forwarding gateway')
 
-    if command == 'pf':
+    # Subparser for shell access
+    shell_parser = subparsers.add_parser('shell', help='Connect to remote host using SSM (no SSH)')
+
+    args = parser.parse_args()
+
+    if args.command == 'pf':
         start_gateway()
-    elif command == 'shell':
+    elif args.command == 'shell':
         start_shell()
     else:
-        print(f"Unknown command: {command}")
-        print("Available commands: pf, shell")
-        sys.exit(1)
+        parser.print_help()
