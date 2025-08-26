@@ -2,16 +2,18 @@ import socket
 import subprocess
 import threading
 import time
+import sys
 
 # Global configuration dictionary
 CONFIG = {
     'aws_cli_command': 'aws ssm start-session --target {instance_id} --document-name AWS-StartPortForwardingSession --parameters "portNumber={local_port},localAddress={local_address}"',
+    'shell_command': 'aws ssm start-session --target {instance_id}',
     'local_port': 2222,
     'local_address': '127.0.0.1',
     'instance_id': 'i-0123456789abcdef0',  # Replace with your instance ID
 }
 
-# Function to handle client connections
+# Function to handle client connections for port forwarding
 def handle_client(client_socket, local_port):
     try:
         # Start the AWS CLI SSM port forward command
@@ -48,7 +50,7 @@ def handle_client(client_socket, local_port):
         server_socket.close()
         process.terminate()
 
-# Function to start the gateway
+# Function to start the gateway for port forwarding
 def start_gateway():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind(('0.0.0.0', CONFIG['local_port']))
@@ -60,5 +62,26 @@ def start_gateway():
         print(f"Accepted connection from {addr}")
         threading.Thread(target=handle_client, args=(client_socket, CONFIG['local_port'])).start()
 
+# Function to start a shell session using SSM
+def start_shell():
+    aws_command = CONFIG['shell_command'].format(instance_id=CONFIG['instance_id'])
+    subprocess.run(aws_command, shell=True)
+
 if __name__ == '__main__':
-    start_gateway()
+    if len(sys.argv) < 2:
+        print("Usage: python main.py <command>")
+        print("Commands:")
+        print("  pf     Start port forwarding gateway")
+        print("  shell  Connect to remote host using SSM (no SSH)")
+        sys.exit(1)
+
+    command = sys.argv[1]
+
+    if command == 'pf':
+        start_gateway()
+    elif command == 'shell':
+        start_shell()
+    else:
+        print(f"Unknown command: {command}")
+        print("Available commands: pf, shell")
+        sys.exit(1)
