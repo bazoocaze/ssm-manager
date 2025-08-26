@@ -4,6 +4,8 @@ import threading
 import time
 import sys
 import argparse
+import os
+import configparser
 
 # Global configuration dictionary
 CONFIG = {
@@ -13,6 +15,30 @@ CONFIG = {
     'local_address': '127.0.0.1',
     'instance_id': 'i-0123456789abcdef0',  # Replace with your instance ID
 }
+
+# Function to read configuration from ~/.ssm_manager file
+def read_config_file():
+    config_path = os.path.expanduser('~/.ssm_manager')
+    if not os.path.exists(config_path):
+        return None
+
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    return config
+
+# Function to find the best matching section for a given host pattern
+def find_best_match(config, target):
+    best_match = None
+    best_score = -1
+
+    for section in config.sections():
+        if fnmatch.fnmatch(target, section):
+            score = len(section)  # Simpler scoring: longer patterns are better
+            if score > best_score:
+                best_score = score
+                best_match = section
+
+    return best_match
 
 # Function to handle client connections for port forwarding
 def handle_client(client_socket, local_port):
@@ -64,8 +90,26 @@ def start_gateway():
         threading.Thread(target=handle_client, args=(client_socket, CONFIG['local_port'])).start()
 
 # Function to start a shell session using SSM
-def start_shell():
-    aws_command = CONFIG['shell_command'].format(instance_id=CONFIG['instance_id'])
+def start_shell(target):
+    config = read_config_file()
+
+    if config and target in config.sections():
+        section = config[target]
+        instance_id = section.get('Hostname', target)
+        profile = section.get('Profile')
+        region = section.get('Region')
+
+        aws_command = CONFIG['shell_command'].format(instance_id=instance_id)
+
+        if profile:
+            aws_command = f"aws --profile {profile} {aws_command}"
+        if region:
+            aws_command = f"aws --region {region} {aws_command}"
+
+    else:
+        # Fallback to original behavior
+        aws_command = CONFIG['shell_command'].format(instance_id=target)
+
     subprocess.run(aws_command, shell=True)
 
 if __name__ == '__main__':
@@ -77,12 +121,13 @@ if __name__ == '__main__':
 
     # Subparser for shell access
     shell_parser = subparsers.add_parser('shell', help='Connect to remote host using SSM (no SSH)')
+    shell_parser.add_argument('target', help='Target instance ID or pattern from config file')
 
     args = parser.parse_args()
 
     if args.command == 'pf':
         start_gateway()
     elif args.command == 'shell':
-        start_shell()
+        start_shell(args.target)
     else:
         parser.print_help()
