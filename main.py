@@ -8,17 +8,17 @@ import sys
 import threading
 import time
 import traceback
-from threading import Thread
 
 # Global configuration dictionary
 CONFIG = {
+    "version": "1.0.0",
     "aws_cli": "/home/jose/dados/bin/awss",
     'aws_cli_command': 'aws ssm start-session --target {instance_id} --document-name AWS-StartPortForwardingSession --parameters "portNumber={local_port},localAddress={local_address}"',
     'shell_command': 'aws ssm start-session --target {instance_id}',
     'local_port': 2222,
     'local_address': '127.0.0.1',
     'instance_id': 'i-0123456789abcdef0',  # Replace with your instance ID
-    "default_config_file": os.path.expanduser('~/.ssm_manager')
+    "default_config_file": os.path.expanduser('~/.ssm_manager'),
 }
 
 
@@ -152,19 +152,29 @@ class LocalForwardSimpleController:
         self._instance_id = instance_id
         self._host_config = host_config
         self._local_forward_config = local_forward_config
-        self._run_thread: Thread = None
+        self._external_process: subprocess.Popen = None
+        self._external_process_exit_code = None
 
     def start(self):
         if self.is_running():
             return
-        self._run_thread = threading.Thread(target=self._run())
-        self._run_thread.start()
+        self._run()
 
     def stop(self):
-        pass
+        if self.is_running():
+            print("DEBUG:controller:stop: finishing")
+            self._external_process.terminate()
+            self._external_process.wait()
+            print("DEBUG:controller:stop: external process finished")
+        else:
+            print("DEBUG:controller:stop: not running")
 
     def is_running(self):
-        return self._run_thread is not None and self._run_thread.is_alive()
+        if self._external_process is None or self._external_process_exit_code is not None:
+            return False
+
+        self._external_process_exit_code = self._external_process.poll()
+        return self._external_process_exit_code is None
 
     def _run(self):
         local_port = self._local_forward_config.local_port
@@ -178,10 +188,9 @@ class LocalForwardSimpleController:
                          "--parameters", f"portNumber={local_port},localAddress=local_address"]
 
         print(f"EXEC: {command_line}")
-        try:
-            subprocess.run(command_line, shell=False)
-        finally:
-            print("DEBUG:process finished")
+        self._external_process_exit_code = None
+        self._external_process = subprocess.Popen(command_line, shell=False)
+        print("DEBUG:external process started")
 
 
 # Function to read configuration from ~/.ssm_manager file
@@ -250,22 +259,29 @@ def command_port_forwarding(args):
     if not host_config:
         return
     if not host_config.local_forward:
-        print("WARN:no local forward configuration found")
+        print("WARN: no local forward configuration found")
         return
 
     instance_id = host_config.resolve_hostname(target)
     controllers = []
 
     try:
-        print("DEBUG:pf starting")
+        print("DEBUG:PF: starting")
         for local_forward in host_config.local_forward:
             controller = LocalForwardSimpleController(instance_id, host_config, local_forward)
+            controllers.append(controller)
             controller.start()
+        while controllers:
+            time.sleep(3)
+            for controller in controllers.copy():
+                if not controller.is_running():
+                    controllers.remove(controller)
+
     finally:
-        print("DEBUG:pf finishing")
+        print("DEBUG:PF: finishing")
         for controller in controllers:
             controller.stop()
-        print("DEBUG:pf finished")
+        print("DEBUG:PF: finished")
 
 
 # Function to start a shell session using SSM
@@ -293,6 +309,7 @@ def command_start_shell(target):
 
 def _parse_args():
     parser = argparse.ArgumentParser(description='SSM Port Forwarding and Shell Access', prog='ssm-manager')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s ' + CONFIG['version'])
     subparsers = parser.add_subparsers(dest='command', help='Commands')
 
     # Subparser for port forwarding
@@ -314,10 +331,10 @@ def main():
     signal.signal(signal.SIGTERM, _signal_handler)
     args, parser = _parse_args()
     try:
-        if args.command == 'pf':
-            return command_port_forwarding(args)
-        elif args.command == 'shell':
+        if args.command == 'shell':
             return command_start_shell(args.target)
+        elif args.command == 'pf':
+            return command_port_forwarding(args)
         else:
             parser.print_help()
             return 1
