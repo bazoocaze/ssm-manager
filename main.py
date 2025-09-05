@@ -1,5 +1,6 @@
 import argparse
 import fnmatch
+import logging
 import os
 import signal
 import socket
@@ -19,7 +20,10 @@ CONFIG = {
     'local_address': '127.0.0.1',
     'instance_id': 'i-0123456789abcdef0',  # Replace with your instance ID
     "default_config_file": os.path.expanduser('~/.ssm_manager'),
+    "debug": False,
 }
+
+logger = logging.getLogger(__name__)
 
 
 class ApplicationTerminationException(Exception):
@@ -31,6 +35,7 @@ class LocalForwardConfig:
         self.local_port = None
         self.remote_address = None
         self.remote_port = None
+        self._logger = logging.getLogger(self.__class__.__name__)
 
     def parse_line(self, line_number, command, extras) -> bool:
         options = extras.split(":")
@@ -40,9 +45,9 @@ class LocalForwardConfig:
                 self.remote_address = options[1].strip()
                 self.remote_port = int(options[2].strip())
                 return True
+            self._logger.warning(f"line[{line_number}]: invalid local forward configuration")
         except Exception as ex:
-            print(f"WARN:line[{line_number}]: error in local forward configuration: {ex}")
-        print(f"WARN:line[{line_number}]: invalid local forward configuration")
+            self._logger.warning(f"line[{line_number}]: error in local forward configuration: {ex}")
         return False
 
     def __str__(self):
@@ -62,6 +67,7 @@ class HostConfig:
             "region": None,
         }
         self.local_forward = local_forward or []
+        self._logger = logging.getLogger(self.__class__.__name__)
 
     @property
     def target(self):
@@ -87,7 +93,6 @@ class HostConfig:
         return self.hostname or source_hostname
 
     def parse_line(self, line_number, command, extras):
-        print(f"PARSE_LINE[{line_number}]: {command} {extras}")
         command = command.lower()
         if command == "localforward":
             entry = LocalForwardConfig()
@@ -96,7 +101,7 @@ class HostConfig:
         elif command in self.options:
             self.options[command] = extras
         else:
-            print(f"WARN:line[{line_number}]: unrecognized option {command}")
+            self._logger.warning(f"line[{line_number}]: unrecognized option {command}")
 
     @classmethod
     def default_config(cls):
@@ -112,39 +117,50 @@ class HostConfig:
 class Config:
     def __init__(self):
         self.config = {"hosts": []}
+        self._logger = logging.getLogger(self.__class__.__name__)
 
     def find_host_config(self, target, allow_default=True):
         for host_config in self.config["hosts"]:
             if fnmatch.fnmatch(target, host_config.target):
                 return host_config
         if not allow_default:
-            print(f"WARN:host not found: {target}")
+            self._logger.error(f"host not found: {target}")
             return None
         return HostConfig.default_config()
 
     def _add_host_config(self, host_config):
         self.config["hosts"].append(host_config)
 
-    def read_config_file(self, file_name=None):
+    def read_config_file(self, file_name=None) -> bool:
         config_path = file_name or CONFIG['default_config_file']
         host_config = None
         line_number = 0
         with open(config_path, 'r') as f:
             for line in f.readlines():
                 line_number += 1
-                line = line.rstrip().replace('\t', ' ')
                 if "#" in line:
-                    line = line[:line.index("#")].rstrip()
-                print(f"READ[{line_number}]: {line}")
+                    line = line[:line.index("#")].strip()
+                line = line.replace('\t', ' ').strip()
                 if not line:
                     continue
-                if not line.startswith(" "):
-                    target = line.split(" ", maxsplit=1)[1].strip()
+                line_split = line.split(" ", maxsplit=1)
+                command = line_split[0].lower()
+                if command == "host":
+                    if len(line_split) < 2:
+                        self._logger.error(f"line[{line_number}]: invalid host definition line")
+                        return False
+                    target = line_split[1].strip()
                     host_config = HostConfig(target)
                     self._add_host_config(host_config)
                 elif host_config:
-                    command = line.strip().split(" ", maxsplit=1)
-                    host_config.parse_line(line_number, command[0], command[1])
+                    if len(line_split) < 2:
+                        self._logger.warning(f"line[{line_number}]: invalid configuration line")
+                        continue
+                    host_config.parse_line(line_number, command, line_split[1])
+                else:
+                    self._logger.error(f"line[{line_number}]: invalid command outset Host definition")
+                    return False
+        return True
 
 
 class LocalForwardSimpleController:
@@ -154,6 +170,7 @@ class LocalForwardSimpleController:
         self._local_forward_config = local_forward_config
         self._external_process: subprocess.Popen = None
         self._external_process_exit_code = None
+        self._logger = logging.getLogger(self.__class__.__name__)
 
     def start(self):
         if self.is_running():
@@ -162,12 +179,12 @@ class LocalForwardSimpleController:
 
     def stop(self):
         if self.is_running():
-            print("DEBUG:controller:stop: finishing")
+            self._logger.debug("stop -> finishing")
             self._external_process.terminate()
             self._external_process.wait()
-            print("DEBUG:controller:stop: external process finished")
+            self._logger.debug("stop -> external process finished")
         else:
-            print("DEBUG:controller:stop: not running")
+            self._logger.debug("stop -> not running")
 
     def is_running(self):
         if self._external_process is None or self._external_process_exit_code is not None:
@@ -187,17 +204,18 @@ class LocalForwardSimpleController:
                          "--document-name", "AWS-StartPortForwardingSession",
                          "--parameters", f"portNumber={local_port},localAddress=local_address"]
 
-        print(f"EXEC: {command_line}")
+        self._logger.debug(f"EXEC: {command_line}")
         self._external_process_exit_code = None
         self._external_process = subprocess.Popen(command_line, shell=False)
-        print("DEBUG:external process started")
+        self._logger.debug("external process started")
 
 
 # Function to read configuration from ~/.ssm_manager file
-def read_config_file():
+def read_config_file() -> Config:
     config_path = os.path.expanduser('~/.ssm_manager')
     config = Config()
-    config.read_config_file(config_path)
+    if not config.read_config_file(config_path):
+        return None
     return config
 
 
@@ -252,21 +270,20 @@ def start_gateway():
         threading.Thread(target=handle_client, args=(client_socket, CONFIG['local_port'])).start()
 
 
-def command_port_forwarding(args):
+def command_port_forwarding(args, config: Config):
     target = args.target
-    config = read_config_file()
     host_config = config.find_host_config(target, allow_default=False)
     if not host_config:
         return
     if not host_config.local_forward:
-        print("WARN: no local forward configuration found")
+        logging.error("no local forward configuration found")
         return
 
     instance_id = host_config.resolve_hostname(target)
     controllers = []
 
     try:
-        print("DEBUG:PF: starting")
+        logging.debug("Port Forwarding starting")
         for local_forward in host_config.local_forward:
             controller = LocalForwardSimpleController(instance_id, host_config, local_forward)
             controllers.append(controller)
@@ -278,15 +295,15 @@ def command_port_forwarding(args):
                     controllers.remove(controller)
 
     finally:
-        print("DEBUG:PF: finishing")
+        logging.debug("Port Forwarding finishing")
         for controller in controllers:
             controller.stop()
-        print("DEBUG:PF: finished")
+        logging.debug("Port Forwarding finished")
 
 
 # Function to start a shell session using SSM
-def command_start_shell(target):
-    config = read_config_file()
+def command_start_shell(args, config: Config):
+    target = args.target
     host_config = config.find_host_config(target)
 
     instance_id = host_config.resolve_hostname(target)
@@ -300,16 +317,17 @@ def command_start_shell(target):
         command_line += ["--region", region]
     command_line += ["ssm", "start-session", "--target", instance_id]
 
-    print(f"EXEC: {command_line}")
+    logging.debug(f"EXEC: {command_line}")
     try:
         subprocess.run(command_line, shell=False)
     finally:
-        print("DEBUG:remote shell session finished")
+        logging.debug("remote shell session finished")
 
 
 def _parse_args():
     parser = argparse.ArgumentParser(description='SSM Port Forwarding and Shell Access', prog='ssm-manager')
     parser.add_argument('-v', '--version', action='version', version='%(prog)s ' + CONFIG['version'])
+    parser.add_argument('-d', '--debug', action='store_true', help='Enable debug output')
     subparsers = parser.add_subparsers(dest='command', help='Commands')
 
     # Subparser for port forwarding
@@ -330,20 +348,26 @@ def _signal_handler(signum, frame):
 def main():
     signal.signal(signal.SIGTERM, _signal_handler)
     args, parser = _parse_args()
+    CONFIG['debug'] = args.debug
+    logging.basicConfig(level=logging.DEBUG if CONFIG["debug"] else logging.INFO)
     try:
-        if args.command == 'shell':
-            return command_start_shell(args.target)
-        elif args.command == 'pf':
-            return command_port_forwarding(args)
-        else:
-            parser.print_help()
-            return 1
+        if args.command:
+            config = read_config_file()
+            if not config:
+                return 1
+            if args.command == 'shell':
+                return command_start_shell(args, config)
+            elif args.command == 'pf':
+                return command_port_forwarding(args, config)
+        parser.print_help()
+        return 1
     except (KeyboardInterrupt, ApplicationTerminationException):
-        print("Interrupted")
+        logging.info("Operation Interrupted")
         return 127
     except Exception as e:
-        print(f"ERROR: {e}")
-        traceback.print_exc()
+        logging.error(f"{e}")
+        if CONFIG["debug"]:
+            traceback.print_exc()
         return 126
 
 
