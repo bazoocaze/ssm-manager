@@ -9,18 +9,15 @@ import sys
 import threading
 import time
 import traceback
+from threading import Thread
 
-# Global configuration dictionary
+# Global configuration
 CONFIG = {
     "version": "1.0.0",
     "aws_cli": "/home/jose/dados/bin/awss",
-    'aws_cli_command': 'aws ssm start-session --target {instance_id} --document-name AWS-StartPortForwardingSession --parameters "portNumber={local_port},localAddress={local_address}"',
-    'shell_command': 'aws ssm start-session --target {instance_id}',
-    'local_port': 2222,
-    'local_address': '127.0.0.1',
-    'instance_id': 'i-0123456789abcdef0',  # Replace with your instance ID
     "default_config_file": os.path.expanduser('~/.ssm_manager'),
     "debug": False,
+    "exit_signal": False,
 }
 
 logger = logging.getLogger(__name__)
@@ -56,9 +53,16 @@ class LocalForwardConfig:
 
     __repr__ = __str__
 
+    def with_random_local_port(self):
+        updated = LocalForwardConfig()
+        updated.local_port = 0
+        updated.remote_address = self.remote_address
+        updated.remote_port = self.remote_port
+        return updated
+
 
 class HostConfig:
-    def __init__(self, target, options=None, local_forward=None):
+    def __init__(self, target, options=None, local_forward: list[LocalForwardConfig] = None):
         self._target = target
         self.options = options or {
             "hostname": None,
@@ -168,14 +172,19 @@ class LocalForwardSimpleController:
         self._instance_id = instance_id
         self._host_config = host_config
         self._local_forward_config = local_forward_config
+
         self._external_process: subprocess.Popen = None
         self._external_process_exit_code = None
         self._logger = logging.getLogger(self.__class__.__name__)
+        self._effective_port = None
 
     def start(self):
         if self.is_running():
             return
-        self._run()
+        try:
+            self._run()
+        except Exception as ex:
+            raise Exception(f"Failed to start SSM for port {self._local_forward_config.local_port}: {ex}")
 
     def stop(self):
         if self.is_running():
@@ -193,8 +202,20 @@ class LocalForwardSimpleController:
         self._external_process_exit_code = self._external_process.poll()
         return self._external_process_exit_code is None
 
+    def get_effective_local_port(self):
+        return self._effective_port or self._local_forward_config.local_port
+
+    def _get_local_port_to_use(self):
+        port = self._local_forward_config.local_port
+        if port:
+            return port
+        free_port = get_free_port()
+        self._logger.info(f"Selected port {free_port} to start SSM instance")
+        return free_port
+
     def _run(self):
-        local_port = self._local_forward_config.local_port
+        local_port = self._get_local_port_to_use()
+        self._effective_port = local_port
         command_line = [CONFIG["aws_cli"]]
         if self._host_config.profile:
             command_line += ["--profile", self._host_config.profile]
@@ -209,65 +230,176 @@ class LocalForwardSimpleController:
         self._external_process = subprocess.Popen(command_line, shell=False)
         self._logger.debug("external process started")
 
+    def cleanup(self):
+        self.is_running()
+
+
+class LocalForwardGatewayController:
+    def __init__(self, instance_id: str, host_config: HostConfig, local_forward_config: LocalForwardConfig):
+        self._instance_id = instance_id
+        self._host_config = host_config
+        self._local_forward_config = local_forward_config
+        self._logger = logging.getLogger(self.__class__.__name__)
+
+        self._stopped = False
+        self._server_socket: socket.socket = None
+        self._inner_controller: LocalForwardSimpleController = None
+        self._accept_thread: Thread = None
+
+    def start(self):
+        if self.is_running():
+            return
+        try:
+            self._stopped = False
+            self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._server_socket.bind(('localhost', self._local_forward_config.local_port))
+            self._server_socket.listen(10)
+            self._logger.info(f"Listening on port {self._local_forward_config.local_port}")
+            self._accept_thread = Thread(target=self._run)
+            self._accept_thread.start()
+        except Exception as ex:
+            if self._server_socket:
+                self._server_socket.close()
+            raise Exception(f"Failed to start port forwarding for port {self._local_forward_config.local_port}: {ex}")
+
+    def stop(self):
+        self._stopped = True
+        if self._server_socket:
+            execute_silently(lambda: self._server_socket.shutdown(socket.SHUT_RDWR))
+        if self._inner_controller:
+            self._inner_controller.stop()
+        if self._accept_thread:
+            self._accept_thread.join()
+        if self._server_socket:
+            execute_silently(lambda: self._server_socket.close())
+        self._server_socket = None
+        self._inner_controller = None
+        self._accept_thread = None
+
+    def is_running(self):
+        return self._accept_thread is not None and self._accept_thread.is_alive()
+
+    def _run(self):
+        try:
+            self._try_run()
+        except Exception as ex:
+            if not self._stopped:
+                self._logger.error(f"Unhandled error on network thread: {ex}")
+
+    def _try_run(self):
+        self._logger.info(f"Waiting connections on port {self._local_forward_config.local_port}")
+        while not self._stopped:
+            client_socket, addr = self._server_socket.accept()
+            self._logger.info(f"Accepted connection from {addr}")
+            self._handle_client_connection(client_socket)
+
+    def _handle_client_connection(self, client_socket):
+        self._start_inner_controller_if_needed()
+        if self._inner_controller.is_running():
+            other_local_port = self._inner_controller.get_effective_local_port()
+            other_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._connect_to_controller(other_socket, ('localhost', other_local_port))
+            threading.Thread(target=self._forward_data, args=(client_socket, other_socket)).start()
+            threading.Thread(target=self._forward_data, args=(other_socket, client_socket)).start()
+        else:
+            self._logger.warning("Failed to start SSM subprocess")
+            client_socket.close()
+
+    def _connect_to_controller(self, other_socket: socket.socket, endpoint):
+        repetitions = 5
+        delay = 0.250
+        while True:
+            try:
+                return other_socket.connect(endpoint)
+            except Exception as e:
+                repetitions -= 1
+                if repetitions == 0:
+                    raise e
+                time.sleep(delay)
+                delay *= 2
+
+    def _start_inner_controller_if_needed(self):
+        if self._inner_controller is None:
+            self._inner_controller = LocalForwardSimpleController(
+                self._instance_id,
+                self._host_config,
+                self._local_forward_config.with_random_local_port()
+            )
+        if not self._inner_controller.is_running():
+            self._inner_controller.start()
+            time.sleep(0.5)
+
+    # Forward data between client and server
+    def _forward_data(self, source_socket: socket.socket, destination_socket: socket.socket):
+        try:
+            while True:
+                data = source_socket.recv(4096)
+                if not data:
+                    source_socket.shutdown(socket.SHUT_RD)
+                    destination_socket.shutdown(socket.SHUT_WR)
+                    break
+                destination_socket.sendall(data)
+        except Exception as e:
+            self._logger.warning(f"Forwarding data: {e}")
+
+    def cleanup(self):
+        if self._inner_controller:
+            self._inner_controller.cleanup()
+
+
+def execute_silently(runnable):
+    try:
+        runnable()
+    except:
+        pass  # ignored
+
+
+def get_free_port(host: str = "0.0.0.0") -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((host, 0))
+        return s.getsockname()[1]
+
 
 # Function to read configuration from ~/.ssm_manager file
 def read_config_file() -> Config:
-    config_path = os.path.expanduser('~/.ssm_manager')
+    config_path = CONFIG["default_config_file"]
     config = Config()
     if not config.read_config_file(config_path):
         return None
     return config
 
 
-# Function to handle client connections for port forwarding
-def handle_client(client_socket, local_port):
+def command_port_forwarding_gateway(args, config: Config):
+    target = args.target
+    host_config = config.find_host_config(target, allow_default=False)
+    if not host_config:
+        return
+    if not host_config.local_forward:
+        logging.error("No local forward configuration found.")
+        return
+
+    instance_id = host_config.resolve_hostname(target)
+    controllers = []
+
     try:
-        # Start the AWS CLI SSM port forward command
-        aws_command = CONFIG['aws_cli_command'].format(
-            instance_id=CONFIG['instance_id'],
-            local_port=local_port,
-            local_address=CONFIG['local_address']
-        )
-        process = subprocess.Popen(aws_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-        # Wait for the port forward to start
-        time.sleep(2)  # Adjust this delay if necessary
-
-        # Connect the client socket to the local port
-        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server_socket.connect((CONFIG['local_address'], local_port))
-
-        # Forward data between client and server
-        def forward_data(source, destination):
-            try:
-                while True:
-                    data = source.recv(4096)
-                    if not data:
-                        break
-                    destination.sendall(data)
-            except Exception as e:
-                print(f"Error forwarding data: {e}")
-
-        threading.Thread(target=forward_data, args=(client_socket, server_socket)).start()
-        threading.Thread(target=forward_data, args=(server_socket, client_socket)).start()
+        logging.info("Starting Port Forwarding Gateway")
+        for local_forward in host_config.local_forward:
+            controller = LocalForwardGatewayController(instance_id, host_config, local_forward)
+            controllers.append(controller)
+            controller.start()
+        while controllers:
+            time.sleep(3)
+            for controller in controllers.copy():
+                if not controller.is_running():
+                    controllers.remove(controller)
+                else:
+                    controller.cleanup()
 
     finally:
-        client_socket.close()
-        server_socket.close()
-        process.terminate()
-
-
-# Function to start the gateway for port forwarding
-def start_gateway():
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(('0.0.0.0', CONFIG['local_port']))
-    server.listen(5)
-    print(f"Gateway listening on port {CONFIG['local_port']}")
-
-    while True:
-        client_socket, addr = server.accept()
-        print(f"Accepted connection from {addr}")
-        threading.Thread(target=handle_client, args=(client_socket, CONFIG['local_port'])).start()
+        logging.info("Port Forwarding Gateway finishing")
+        for controller in controllers:
+            controller.stop()
+        logging.info("Port Forwarding Gateway finished")
 
 
 def command_port_forwarding(args, config: Config):
@@ -330,18 +462,26 @@ def _parse_args():
     parser.add_argument('-d', '--debug', action='store_true', help='Enable debug output')
     subparsers = parser.add_subparsers(dest='command', help='Commands')
 
+    # Subparser for shell access
+    shell_parser = subparsers.add_parser('shell', help='Connect to remote host using SSM (no SSH)')
+    shell_parser.add_argument('target', help='Target instance ID or pattern from config file')
+
     # Subparser for port forwarding
     pf_parser = subparsers.add_parser('pf', help='Start port forwarding')
     pf_parser.add_argument('target', help='Target instance ID or pattern from config file')
 
-    # Subparser for shell access
-    shell_parser = subparsers.add_parser('shell', help='Connect to remote host using SSM (no SSH)')
-    shell_parser.add_argument('target', help='Target instance ID or pattern from config file')
+    # Subparser for port forwarding gateway
+    pfgw_parser = subparsers.add_parser('pfgw', help='Start port forwarding gateway',
+                                        description="Port forwarding gateway starts SSM connections on demand.")
+    pfgw_parser.add_argument('target', help='Target instance ID or pattern from config file')
 
     return parser.parse_args(), parser
 
 
 def _signal_handler(signum, frame):
+    if CONFIG["exit_signal"]:
+        sys.exit(125)
+    CONFIG["exit_signal"] = True
     raise ApplicationTerminationException("Received SIGTERM")
 
 
@@ -359,6 +499,8 @@ def main():
                 return command_start_shell(args, config)
             elif args.command == 'pf':
                 return command_port_forwarding(args, config)
+            elif args.command == 'pfgw':
+                return command_port_forwarding_gateway(args, config)
         parser.print_help()
         return 1
     except (KeyboardInterrupt, ApplicationTerminationException):
