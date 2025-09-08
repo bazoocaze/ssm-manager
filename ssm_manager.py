@@ -14,7 +14,7 @@ from threading import Thread
 # Global configuration
 CONFIG = {
     "version": "1.0.0",
-    "aws_cli": "/home/jose/dados/bin/awss",
+    "aws_cli": "aws",
     "default_config_file": os.path.expanduser('~/.ssm_manager'),
     "debug": False,
     "exit_signal": False,
