@@ -216,6 +216,7 @@ class LocalForwardSimpleController:
         self._external_process_exit_code = None
         self._logger = logging.getLogger(self.__class__.__name__)
         self._effective_port = None
+        self._remote_desc = f"{self._local_forward_config.remote_address}:{self._local_forward_config.remote_port}"
 
     def start(self):
         if self.is_running():
@@ -249,7 +250,7 @@ class LocalForwardSimpleController:
         if port:
             return port
         free_port = get_free_port()
-        self._logger.info(f"Selected port {free_port} to start SSM instance")
+        self._logger.info(f"Selected port {free_port} to start SSM instance -> {self._remote_desc}")
         return free_port
 
     def _run(self):
@@ -293,6 +294,7 @@ class LocalForwardGatewayController:
         self._server_socket: socket.socket = None
         self._inner_controller: LocalForwardSimpleController = None
         self._accept_thread: Thread = None
+        self._remote_desc = f"{self._local_forward_config.remote_address}:{self._local_forward_config.remote_port}"
 
     def start(self):
         if self.is_running():
@@ -303,8 +305,8 @@ class LocalForwardGatewayController:
             self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self._server_socket.bind(('localhost', self._local_forward_config.local_port))
             self._server_socket.listen(10)
-            self._logger.info(f"Listening on port {self._local_forward_config.local_port}")
-            self._accept_thread = Thread(target=self._run)
+            self._logger.info(f"Listening on port {self._local_forward_config.local_port} -> {self._remote_desc}")
+            self._accept_thread = Thread(target=self._run, daemon=False)
             self._accept_thread.start()
         except Exception as ex:
             if self._server_socket:
@@ -318,7 +320,7 @@ class LocalForwardGatewayController:
         if self._inner_controller:
             self._inner_controller.stop()
         if self._accept_thread:
-            self._accept_thread.join()
+            self._accept_thread.join(timeout=1)
         if self._server_socket:
             execute_silently(lambda: self._server_socket.close())
         self._server_socket = None
@@ -336,20 +338,22 @@ class LocalForwardGatewayController:
                 self._logger.error(f"Unhandled error on network thread: {ex}")
 
     def _try_run(self):
-        self._logger.info(f"Waiting connections on port {self._local_forward_config.local_port}")
+        self._logger.debug(f"Waiting connections on port {self._local_forward_config.local_port}")
         while not self._stopped:
             client_socket, addr = self._server_socket.accept()
-            self._logger.info(f"Accepted connection from {addr}")
-            self._handle_client_connection(client_socket)
+            client_info = f"{addr[0]}:{addr[1]}"
+            self._logger.info(f"Accepted connection from {client_info} -> {self._remote_desc}")
+            self._handle_client_connection(client_socket, client_info)
 
-    def _handle_client_connection(self, client_socket):
+    def _handle_client_connection(self, client_socket, client_info):
         self._start_inner_controller_if_needed()
         if self._inner_controller.is_running():
             other_local_port = self._inner_controller.get_effective_local_port()
             other_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self._connect_to_controller(other_socket, ('localhost', other_local_port))
-            threading.Thread(target=self._forward_data, args=(client_socket, other_socket)).start()
-            threading.Thread(target=self._forward_data, args=(other_socket, client_socket)).start()
+            threading.Thread(target=self._forward_data, args=(client_socket, other_socket, client_info),
+                             daemon=False).start()
+            threading.Thread(target=self._forward_data, args=(other_socket, client_socket), daemon=False).start()
         else:
             self._logger.warning("Failed to start SSM subprocess")
             client_socket.close()
@@ -379,11 +383,13 @@ class LocalForwardGatewayController:
             time.sleep(0.5)
 
     # Forward data between client and server
-    def _forward_data(self, source_socket: socket.socket, destination_socket: socket.socket):
+    def _forward_data(self, source_socket: socket.socket, destination_socket: socket.socket, info: str = None):
         try:
             while True:
                 data = source_socket.recv(4096)
                 if not data:
+                    if info:
+                        self._logger.info(f"Connection closed: {info}")
                     break
                 destination_socket.sendall(data)
         except Exception as e:
@@ -437,6 +443,7 @@ def command_port_forwarding_gateway(args, config: Config):
             controller = LocalForwardGatewayController(instance_id, host_config, local_forward)
             controllers.append(controller)
             controller.start()
+            time.sleep(0.05)
         while controllers:
             time.sleep(3)
             for controller in controllers.copy():
@@ -444,11 +451,14 @@ def command_port_forwarding_gateway(args, config: Config):
                     controllers.remove(controller)
                 else:
                     controller.cleanup()
-
+    except (KeyboardInterrupt, ApplicationTerminationException) as ex:
+        logging.info(f"Operation canceled ({ex.__class__.__name__})")
     finally:
         logging.info("Port Forwarding Gateway finishing")
+        time.sleep(1)
         for controller in controllers:
             controller.stop()
+            time.sleep(0.05)
         logging.info("Port Forwarding Gateway finished")
 
 
@@ -470,17 +480,21 @@ def command_port_forwarding(args, config: Config):
             controller = LocalForwardSimpleController(instance_id, host_config, local_forward)
             controllers.append(controller)
             controller.start()
+            time.sleep(0.05)
         while controllers:
             time.sleep(3)
             for controller in controllers.copy():
                 if not controller.is_running():
                     controllers.remove(controller)
-
+    except (KeyboardInterrupt, ApplicationTerminationException) as ex:
+        logging.info(f"Operation canceled ({ex.__class__.__name__})")
     finally:
-        logging.debug("Port Forwarding finishing")
+        logging.info("Port Forwarding finishing")
+        time.sleep(1)
         for controller in controllers:
             controller.stop()
-        logging.debug("Port Forwarding finished")
+            time.sleep(0.05)
+        logging.info("Port Forwarding finished")
 
 
 # Function to start a shell session using SSM
@@ -558,8 +572,8 @@ def main():
                 return command_port_forwarding_gateway(args, config)
         parser.print_help()
         return 1
-    except (KeyboardInterrupt, ApplicationTerminationException):
-        logging.info("Operation Interrupted")
+    except (KeyboardInterrupt, ApplicationTerminationException) as ex:
+        logging.info(f"Operation Interrupted ({ex.__class__.__name__})")
         return 127
     except Exception as e:
         logging.error(f"{e}")
