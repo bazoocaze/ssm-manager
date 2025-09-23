@@ -20,7 +20,6 @@ Clone this repository and make the script executable:
 ```bash
 git clone https://github.com/bazoocaze/ssm-manager
 cd ssm-manager
-pipenv install
 chmod +x ssm_manager.sh
 ```
 
@@ -83,12 +82,14 @@ Host i-0123456789abcdef0
 # Use patterns
 Host web-*
   Hostname i-0123456789abcdef0
+  User ubuntu
   Region us-west-2
   LocalForward 9090:127.0.0.1:443
 ```
 
 - `Host <pattern>`: Target instance-id or pattern.
 - `Hostname <instance-id>`: instance-id to connect to.
+- `User <username>`: username for shell session.
 - `Profile`: AWS CLI profile.
 - `Region`: AWS region.
 - `LocalForward <local_port>:<remote_addr>:<remote_port>`: Configure tunnels.

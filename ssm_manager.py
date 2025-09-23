@@ -1,3 +1,41 @@
+#!/usr/bin/env python3
+"""
+SSM Connection Manager
+
+Comandos:
+  - shell <[user@]host>
+      Conecta uma sessão SSM com o host remoto
+  - pf <host>
+      Sobe todos os port-forwardings definidos para o host e mantém até Ctrl+C
+  - pfgw <host>
+      Gateway de port-forwardings, onde a conexão SSM é feita sob demanda (Ctrl+C para finalizar)
+
+Configuração: ~/.ssm_config (semelhante ao ~/.ssh/config)
+Exemplo:
+
+  Host app-*
+    Hostname i-0123456789abcdef0
+    User ubuntu
+    Profile prod
+    Region us-east-1
+    ProxyCommand aws ssm start-session --target {target} --region {region} --profile {profile}
+    LocalForward 15432 127.0.0.1:5432
+    LocalForward 18080 localhost:8080
+
+Notas:
+- Hostname (opcional) define o "target" SSM; se ausente, usa o nome do Host.
+- User (opcional) define o usuário para a sessão SSM interativa.
+- Profile (opcional) mapeia para --profile do AWS CLI.
+- Region (opcional) default em CONFIG['DEFAULT_REGION'].
+- ProxyCommand (opcional) usado APENAS no comando "shell"; ignorado em "pf".
+- LocalForward N host:port pode ocorrer múltiplas vezes.
+- Se o host não for encontrado e parecer um instance-id (i-* ou mi-*), tenta conexão direta.
+
+Requisitos:
+- awscli instalado e autenticado.
+- Permissões de SSM para start-session e documentos de PF.
+"""
+
 import argparse
 import fnmatch
 import logging
@@ -222,9 +260,18 @@ class LocalForwardSimpleController:
             command_line += ["--profile", self._host_config.profile]
         if self._host_config.region:
             command_line += ["--region", self._host_config.region]
+        rhost = self._local_forward_config.remote_address
+        rport = self._local_forward_config.remote_port
         command_line += ["ssm", "start-session", "--target", self._instance_id,
-                         "--document-name", "AWS-StartPortForwardingSession",
-                         "--parameters", f"portNumber={local_port},localAddress=local_address"]
+                         "--document-name", "AWS-StartPortForwardingSessionToRemoteHost",
+                         "--parameters",
+                         (
+                             "{"
+                             f"\"host\":[\"{rhost}\"],"
+                             f"\"portNumber\":[\"{rport}\"],"
+                             f"\"localPortNumber\":[\"{local_port}\"]"
+                             "}"
+                         )]
 
         self._logger.debug(f"EXEC: {command_line}")
         self._external_process_exit_code = None
@@ -253,6 +300,7 @@ class LocalForwardGatewayController:
         try:
             self._stopped = False
             self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self._server_socket.bind(('localhost', self._local_forward_config.local_port))
             self._server_socket.listen(10)
             self._logger.info(f"Listening on port {self._local_forward_config.local_port}")
@@ -336,12 +384,13 @@ class LocalForwardGatewayController:
             while True:
                 data = source_socket.recv(4096)
                 if not data:
-                    source_socket.shutdown(socket.SHUT_RD)
-                    destination_socket.shutdown(socket.SHUT_WR)
                     break
                 destination_socket.sendall(data)
         except Exception as e:
             self._logger.warning(f"Forwarding data: {e}")
+        finally:
+            execute_silently(lambda: source_socket.shutdown(socket.SHUT_RD))
+            execute_silently(lambda: destination_socket.shutdown(socket.SHUT_WR))
 
     def cleanup(self):
         if self._inner_controller:
