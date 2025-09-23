@@ -15,7 +15,7 @@ from threading import Thread
 CONFIG = {
     "version": "1.0.0",
     "aws_cli": "aws",
-    "default_config_file": os.path.expanduser('~/.ssm_manager'),
+    "default_config_file": os.path.expanduser('~/.ssm_config'),
     "debug": False,
     "exit_signal": False,
 }
@@ -35,12 +35,13 @@ class LocalForwardConfig:
         self._logger = logging.getLogger(self.__class__.__name__)
 
     def parse_line(self, line_number, command, extras) -> bool:
-        options = extras.split(":")
         try:
-            if len(options) == 3:
-                self.local_port = int(options[0].strip())
-                self.remote_address = options[1].strip()
-                self.remote_port = int(options[2].strip())
+            extras = (extras + " - -").split(" ")
+            options = extras[1].split(":")
+            if len(options) == 2:
+                self.local_port = int(extras[0].strip())
+                self.remote_address = options[0].strip()
+                self.remote_port = int(options[1].strip())
                 return True
             self._logger.warning(f"line[{line_number}]: invalid local forward configuration")
         except Exception as ex:
@@ -441,6 +442,7 @@ def command_start_shell(args, config: Config):
     instance_id = host_config.resolve_hostname(target)
     profile = host_config.profile
     region = host_config.region
+    user = host_config.user
 
     command_line = [CONFIG["aws_cli"]]
     if profile:
@@ -448,6 +450,10 @@ def command_start_shell(args, config: Config):
     if region:
         command_line += ["--region", region]
     command_line += ["ssm", "start-session", "--target", instance_id]
+
+    if user:
+        command_line += ["--document-name", "AWS-StartInteractiveCommand", "--parameters",
+                         '{"command":["sudo su - ' + user + '"]}']
 
     logging.debug(f"EXEC: {command_line}")
     try:
