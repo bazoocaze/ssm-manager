@@ -351,12 +351,17 @@ class LocalForwardGatewayController:
             other_local_port = self._inner_controller.get_effective_local_port()
             other_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self._connect_to_controller(other_socket, ('localhost', other_local_port))
-            threading.Thread(target=self._forward_data, args=(client_socket, other_socket, client_info),
-                             daemon=False).start()
-            threading.Thread(target=self._forward_data, args=(other_socket, client_socket), daemon=False).start()
+            self._start_socket_forwarding(client_socket, other_socket, client_info)
+            self._start_socket_forwarding(other_socket, client_socket)
         else:
             self._logger.warning("Failed to start SSM subprocess")
             client_socket.close()
+
+    def _start_socket_forwarding(self, source_socket: socket.socket, destination_socket: socket.socket,
+                                 info: str = None):
+        threading.Thread(target=self._forward_data,
+                         args=(source_socket, destination_socket, info),
+                         daemon=False).start()
 
     def _connect_to_controller(self, other_socket: socket.socket, endpoint):
         repetitions = 5
