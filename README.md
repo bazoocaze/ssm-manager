@@ -84,7 +84,7 @@ Host web-*
   Hostname i-0123456789abcdef0
   User ubuntu
   Region us-west-2
-  LocalForward 9090:127.0.0.1:443
+  LocalForward 9090 127.0.0.1:443
 ```
 
 - `Host <pattern>`: Target instance-id or pattern.
@@ -92,4 +92,4 @@ Host web-*
 - `User <username>`: username for shell session.
 - `Profile`: AWS CLI profile.
 - `Region`: AWS region.
-- `LocalForward <local_port>:<remote_addr>:<remote_port>`: Configure tunnels.
+- `LocalForward <local_port> <remote_addr>:<remote_port>`: Configure tunnels.
