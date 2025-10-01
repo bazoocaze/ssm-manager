@@ -51,7 +51,7 @@ from threading import Thread
 
 # Global configuration
 CONFIG = {
-    "version": "1.0.0",
+    "version": "1.0.1",
     "aws_cli": "aws",
     "default_config_file": os.path.expanduser('~/.ssm_config'),
     "debug": False,
@@ -346,16 +346,21 @@ class LocalForwardGatewayController:
             self._handle_client_connection(client_socket, client_info)
 
     def _handle_client_connection(self, client_socket, client_info):
-        self._start_inner_controller_if_needed()
-        if self._inner_controller.is_running():
-            other_local_port = self._inner_controller.get_effective_local_port()
-            other_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self._connect_to_controller(other_socket, ('localhost', other_local_port))
-            self._start_socket_forwarding(client_socket, other_socket, client_info)
-            self._start_socket_forwarding(other_socket, client_socket)
-        else:
-            self._logger.warning("Failed to start SSM subprocess")
-            client_socket.close()
+        try:
+            self._start_inner_controller_if_needed()
+            if self._inner_controller.is_running():
+                other_local_port = self._inner_controller.get_effective_local_port()
+                other_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self._connect_to_controller(other_socket, ('localhost', other_local_port))
+                self._start_socket_forwarding(client_socket, other_socket, client_info)
+                self._start_socket_forwarding(other_socket, client_socket)
+            else:
+                self._logger.warning("Failed to start SSM subprocess")
+                execute_silently(client_socket.close)
+        except Exception as ex:
+            if not self._stopped:
+                self._logger.error(f"Unhandled error handling client connection: {ex}")
+                execute_silently(client_socket.close)
 
     def _start_socket_forwarding(self, source_socket: socket.socket, destination_socket: socket.socket,
                                  info: str = None):
@@ -364,7 +369,7 @@ class LocalForwardGatewayController:
                          daemon=False).start()
 
     def _connect_to_controller(self, other_socket: socket.socket, endpoint):
-        repetitions = 5
+        repetitions = 8
         delay = 0.250
         while True:
             try:
