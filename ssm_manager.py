@@ -51,7 +51,7 @@ from threading import Thread
 
 # Global configuration
 CONFIG = {
-    "version": "1.0.1",
+    "version": "1.0.2",
     "aws_cli": "aws",
     "default_config_file": os.path.expanduser('~/.ssm_config'),
     "debug": False,
@@ -343,6 +343,7 @@ class LocalForwardGatewayController:
             client_socket, addr = self._server_socket.accept()
             client_info = f"{addr[0]}:{addr[1]}"
             self._logger.info(f"Accepted connection from {client_info} -> {self._remote_desc}")
+            configure_tcp_socket(client_socket)
             self._handle_client_connection(client_socket, client_info)
 
     def _handle_client_connection(self, client_socket, client_info):
@@ -351,6 +352,7 @@ class LocalForwardGatewayController:
             if self._inner_controller.is_running():
                 other_local_port = self._inner_controller.get_effective_local_port()
                 other_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                configure_tcp_socket(other_socket)
                 self._connect_to_controller(other_socket, ('localhost', other_local_port))
                 self._start_socket_forwarding(client_socket, other_socket, client_info)
                 self._start_socket_forwarding(other_socket, client_socket)
@@ -396,7 +398,7 @@ class LocalForwardGatewayController:
     def _forward_data(self, source_socket: socket.socket, destination_socket: socket.socket, info: str = None):
         try:
             while True:
-                data = source_socket.recv(4096)
+                data = source_socket.recv(131072)
                 if not data:
                     if info:
                         self._logger.info(f"Connection closed: {info}")
@@ -411,6 +413,12 @@ class LocalForwardGatewayController:
     def cleanup(self):
         if self._inner_controller:
             self._inner_controller.cleanup()
+
+
+def configure_tcp_socket(sock: socket.socket):
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 131072)  # 128 KB
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 131072)  # 128 KB
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
 
 def execute_silently(runnable):
@@ -536,7 +544,8 @@ def command_start_shell(args, config: Config):
 
 
 def _parse_args():
-    parser = argparse.ArgumentParser(description='SSM Port Forwarding and Shell Access', prog='ssm-manager')
+    description = "SSM Port Forwarding and Shell Access (v{})".format(CONFIG["version"])
+    parser = argparse.ArgumentParser(description=description, prog='ssm-manager')
     parser.add_argument('-v', '--version', action='version', version='%(prog)s ' + CONFIG['version'])
     parser.add_argument('-d', '--debug', action='store_true', help='Enable debug output')
     subparsers = parser.add_subparsers(dest='command', help='Commands')
