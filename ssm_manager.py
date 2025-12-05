@@ -495,7 +495,7 @@ def command_port_forwarding_gateway(args, config: Config):
             controller.start()
             time.sleep(0.05)
         while controllers:
-            time.sleep(5)
+            time.sleep(3)
             for controller in controllers.copy():
                 if not controller.is_running():
                     controllers.remove(controller)
@@ -507,10 +507,10 @@ def command_port_forwarding_gateway(args, config: Config):
         return EXIT_CANCELED
     finally:
         logging.info("Port Forwarding Gateway finishing")
-        time.sleep(1)
+        time.sleep(0.1)
         for controller in controllers:
             controller.stop()
-            time.sleep(0.05)
+            time.sleep(0.025)
         logging.info("Port Forwarding Gateway finished")
 
 
@@ -642,5 +642,4 @@ def main():
 
 if __name__ == '__main__':
     ret = main()
-    print(f"Main exited with code: {ret}")
     sys.exit(ret)
