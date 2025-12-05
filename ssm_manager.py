@@ -40,6 +40,7 @@ import argparse
 import fnmatch
 import logging
 import os
+import select
 import signal
 import socket
 import subprocess
@@ -49,9 +50,14 @@ import time
 import traceback
 from threading import Thread
 
+EXIT_OK = 0
+EXIT_ERROR = 1
+EXIT_CONFIG_ERROR = 2
+EXIT_CANCELED = 130
+
 # Global configuration
 CONFIG = {
-    "version": "1.0.2",
+    "version": "1.0.3",
     "aws_cli": "aws",
     "default_config_file": os.path.expanduser('~/.ssm_config'),
     "debug": False,
@@ -295,6 +301,8 @@ class LocalForwardGatewayController:
         self._inner_controller: LocalForwardSimpleController = None
         self._accept_thread: Thread = None
         self._remote_desc = f"{self._local_forward_config.remote_address}:{self._local_forward_config.remote_port}"
+        self._socket_list = []
+        self._sockets_to_cleanup = []
 
     def start(self):
         if self.is_running():
@@ -323,6 +331,9 @@ class LocalForwardGatewayController:
             self._accept_thread.join(timeout=1)
         if self._server_socket:
             execute_silently(lambda: self._server_socket.close())
+        for client_socket in self._socket_list.copy():
+            execute_silently(lambda: client_socket.shutdown(socket.SHUT_RDWR))
+            self._socket_list.remove(client_socket)
         self._server_socket = None
         self._inner_controller = None
         self._accept_thread = None
@@ -342,6 +353,10 @@ class LocalForwardGatewayController:
         while not self._stopped:
             client_socket, addr = self._server_socket.accept()
             client_info = f"{addr[0]}:{addr[1]}"
+            if self._stopped:
+                self._logger.info(f"Refused connection from {client_info} (reason: stopping)")
+                execute_silently(client_socket.close)
+                break
             self._logger.info(f"Accepted connection from {client_info} -> {self._remote_desc}")
             configure_tcp_socket(client_socket)
             self._handle_client_connection(client_socket, client_info)
@@ -356,6 +371,8 @@ class LocalForwardGatewayController:
                 self._connect_to_controller(other_socket, ('localhost', other_local_port))
                 self._start_socket_forwarding(client_socket, other_socket, client_info)
                 self._start_socket_forwarding(other_socket, client_socket)
+                self._socket_list.append(client_socket)
+                self._socket_list.append(other_socket)
             else:
                 self._logger.warning("Failed to start SSM subprocess")
                 execute_silently(client_socket.close)
@@ -373,7 +390,7 @@ class LocalForwardGatewayController:
     def _connect_to_controller(self, other_socket: socket.socket, endpoint):
         repetitions = 8
         delay = 0.250
-        while True:
+        while not self._stopped:
             try:
                 return other_socket.connect(endpoint)
             except Exception as e:
@@ -382,6 +399,7 @@ class LocalForwardGatewayController:
                     raise e
                 time.sleep(delay)
                 delay *= 2
+        raise Exception("Connection to controller canceled")
 
     def _start_inner_controller_if_needed(self):
         if self._inner_controller is None:
@@ -398,21 +416,35 @@ class LocalForwardGatewayController:
     def _forward_data(self, source_socket: socket.socket, destination_socket: socket.socket, info: str = None):
         try:
             while True:
-                data = source_socket.recv(131072)
-                if not data:
-                    if info:
-                        self._logger.info(f"Connection closed: {info}")
+                rlist, _, xlist = select.select([source_socket], [], [source_socket, destination_socket])
+                if xlist or self._stopped:
+                    self._logger.info(f"Connection broken: {info}")
                     break
-                destination_socket.sendall(data)
+                if source_socket in rlist:
+                    data = source_socket.recv(131072)
+                    if not data:
+                        if info:
+                            self._logger.info(f"Connection closed: {info}")
+                        break
+                    destination_socket.sendall(data)
+                else:
+                    break
         except Exception as e:
             self._logger.warning(f"Forwarding data: {e}")
         finally:
-            execute_silently(lambda: source_socket.shutdown(socket.SHUT_RD))
-            execute_silently(lambda: destination_socket.shutdown(socket.SHUT_WR))
+            execute_silently(lambda: source_socket.shutdown(socket.SHUT_RDWR))
+            execute_silently(lambda: destination_socket.shutdown(socket.SHUT_RDWR))
+            if source_socket in self._socket_list:
+                self._socket_list.remove(source_socket)
+            self._sockets_to_cleanup.append(source_socket)
 
     def cleanup(self):
         if self._inner_controller:
             self._inner_controller.cleanup()
+        if self._sockets_to_cleanup:
+            for client_socket in self._sockets_to_cleanup.copy():
+                self._sockets_to_cleanup.remove(client_socket)
+                execute_silently(lambda: client_socket.close())
 
 
 def configure_tcp_socket(sock: socket.socket):
@@ -447,10 +479,10 @@ def command_port_forwarding_gateway(args, config: Config):
     target = args.target
     host_config = config.find_host_config(target, allow_default=False)
     if not host_config:
-        return
+        return EXIT_CONFIG_ERROR
     if not host_config.local_forward:
         logging.error("No local forward configuration found.")
-        return
+        return EXIT_CONFIG_ERROR
 
     instance_id = host_config.resolve_hostname(target)
     controllers = []
@@ -463,14 +495,16 @@ def command_port_forwarding_gateway(args, config: Config):
             controller.start()
             time.sleep(0.05)
         while controllers:
-            time.sleep(3)
+            time.sleep(5)
             for controller in controllers.copy():
                 if not controller.is_running():
                     controllers.remove(controller)
                 else:
                     controller.cleanup()
+        return EXIT_OK
     except (KeyboardInterrupt, ApplicationTerminationException) as ex:
         logging.info(f"Operation canceled ({ex.__class__.__name__})")
+        return EXIT_CANCELED
     finally:
         logging.info("Port Forwarding Gateway finishing")
         time.sleep(1)
@@ -484,10 +518,10 @@ def command_port_forwarding(args, config: Config):
     target = args.target
     host_config = config.find_host_config(target, allow_default=False)
     if not host_config:
-        return
+        return EXIT_CONFIG_ERROR
     if not host_config.local_forward:
         logging.error("no local forward configuration found")
-        return
+        return EXIT_CONFIG_ERROR
 
     instance_id = host_config.resolve_hostname(target)
     controllers = []
@@ -504,8 +538,10 @@ def command_port_forwarding(args, config: Config):
             for controller in controllers.copy():
                 if not controller.is_running():
                     controllers.remove(controller)
+        return EXIT_OK
     except (KeyboardInterrupt, ApplicationTerminationException) as ex:
         logging.info(f"Operation canceled ({ex.__class__.__name__})")
+        return EXIT_CANCELED
     finally:
         logging.info("Port Forwarding finishing")
         time.sleep(1)
@@ -519,6 +555,8 @@ def command_port_forwarding(args, config: Config):
 def command_start_shell(args, config: Config):
     target = args.target
     host_config = config.find_host_config(target)
+    if not host_config:
+        return EXIT_CONFIG_ERROR
 
     instance_id = host_config.resolve_hostname(target)
     profile = host_config.profile
@@ -538,7 +576,8 @@ def command_start_shell(args, config: Config):
 
     logging.debug(f"EXEC: {command_line}")
     try:
-        subprocess.run(command_line, shell=False)
+        completed = subprocess.run(command_line, shell=False)
+        return completed.returncode
     finally:
         logging.debug("remote shell session finished")
 
@@ -568,7 +607,7 @@ def _parse_args():
 
 def _signal_handler(signum, frame):
     if CONFIG["exit_signal"]:
-        sys.exit(125)
+        sys.exit(EXIT_CANCELED)
     CONFIG["exit_signal"] = True
     raise ApplicationTerminationException("Received SIGTERM")
 
@@ -582,7 +621,7 @@ def main():
         if args.command:
             config = read_config_file()
             if not config:
-                return 1
+                return EXIT_CONFIG_ERROR
             if args.command == 'shell':
                 return command_start_shell(args, config)
             elif args.command == 'pf':
@@ -590,17 +629,18 @@ def main():
             elif args.command == 'pfgw':
                 return command_port_forwarding_gateway(args, config)
         parser.print_help()
-        return 1
+        return EXIT_CONFIG_ERROR
     except (KeyboardInterrupt, ApplicationTerminationException) as ex:
         logging.info(f"Operation Interrupted ({ex.__class__.__name__})")
-        return 127
+        return EXIT_CANCELED
     except Exception as e:
         logging.error(f"{e}")
         if CONFIG["debug"]:
             traceback.print_exc()
-        return 126
+        return EXIT_ERROR
 
 
 if __name__ == '__main__':
     ret = main()
+    print(f"Main exited with code: {ret}")
     sys.exit(ret)
