@@ -46,9 +46,8 @@ import socket
 import subprocess
 import sys
 import threading
-import time
 import traceback
-from threading import Thread
+from threading import Thread, Event
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -57,14 +56,14 @@ EXIT_CANCELED = 130
 
 # Global configuration
 CONFIG = {
-    "version": "1.0.3",
+    "version": "1.0.4",
     "aws_cli": "aws",
     "default_config_file": os.path.expanduser('~/.ssm_config'),
-    "debug": False,
-    "exit_signal": False,
+    "debug": False
 }
 
 logger = logging.getLogger(__name__)
+SHUTDOWN = Event()
 
 
 class ApplicationTerminationException(Exception):
@@ -389,7 +388,7 @@ class LocalForwardGatewayController:
 
     def _connect_to_controller(self, other_socket: socket.socket, endpoint):
         repetitions = 8
-        delay = 0.250
+        delay_value = 0.250
         while not self._stopped:
             try:
                 return other_socket.connect(endpoint)
@@ -397,8 +396,8 @@ class LocalForwardGatewayController:
                 repetitions -= 1
                 if repetitions == 0:
                     raise e
-                time.sleep(delay)
-                delay *= 2
+                delay(delay_value)
+                delay_value *= 2
         raise Exception("Connection to controller canceled")
 
     def _start_inner_controller_if_needed(self):
@@ -410,7 +409,7 @@ class LocalForwardGatewayController:
             )
         if not self._inner_controller.is_running():
             self._inner_controller.start()
-            time.sleep(0.5)
+            delay(0.5)
 
     # Forward data between client and server
     def _forward_data(self, source_socket: socket.socket, destination_socket: socket.socket, info: str = None):
@@ -493,9 +492,8 @@ def command_port_forwarding_gateway(args, config: Config):
             controller = LocalForwardGatewayController(instance_id, host_config, local_forward)
             controllers.append(controller)
             controller.start()
-            time.sleep(0.05)
-        while controllers:
-            time.sleep(3)
+            delay(0.01)
+        while controllers and delay(3):
             for controller in controllers.copy():
                 if not controller.is_running():
                     controllers.remove(controller)
@@ -507,10 +505,10 @@ def command_port_forwarding_gateway(args, config: Config):
         return EXIT_CANCELED
     finally:
         logging.info("Port Forwarding Gateway finishing")
-        time.sleep(0.1)
+        delay(0.1)
         for controller in controllers:
             controller.stop()
-            time.sleep(0.025)
+            delay(0.025)
         logging.info("Port Forwarding Gateway finished")
 
 
@@ -532,9 +530,8 @@ def command_port_forwarding(args, config: Config):
             controller = LocalForwardSimpleController(instance_id, host_config, local_forward)
             controllers.append(controller)
             controller.start()
-            time.sleep(0.05)
-        while controllers:
-            time.sleep(3)
+            delay(0.05)
+        while controllers and delay(3):
             for controller in controllers.copy():
                 if not controller.is_running():
                     controllers.remove(controller)
@@ -544,10 +541,10 @@ def command_port_forwarding(args, config: Config):
         return EXIT_CANCELED
     finally:
         logging.info("Port Forwarding finishing")
-        time.sleep(1)
+        delay(1)
         for controller in controllers:
             controller.stop()
-            time.sleep(0.05)
+            delay(0.05)
         logging.info("Port Forwarding finished")
 
 
@@ -582,6 +579,10 @@ def command_start_shell(args, config: Config):
         logging.debug("remote shell session finished")
 
 
+def delay(seconds: float) -> bool:
+    return not SHUTDOWN.wait(seconds)
+
+
 def _parse_args():
     description = "SSM Port Forwarding and Shell Access (v{})".format(CONFIG["version"])
     parser = argparse.ArgumentParser(description=description, prog='ssm-manager')
@@ -606,14 +607,14 @@ def _parse_args():
 
 
 def _signal_handler(signum, frame):
-    if CONFIG["exit_signal"]:
-        sys.exit(EXIT_CANCELED)
-    CONFIG["exit_signal"] = True
-    raise ApplicationTerminationException("Received SIGTERM")
+    logging.warning(f"Operation interrupted by signal {signum}")
+    SHUTDOWN.set()
 
 
 def main():
     signal.signal(signal.SIGTERM, _signal_handler)
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGHUP, _signal_handler)
     args, parser = _parse_args()
     CONFIG['debug'] = args.debug
     logging.basicConfig(level=logging.DEBUG if CONFIG["debug"] else logging.INFO)
