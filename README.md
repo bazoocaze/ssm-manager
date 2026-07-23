@@ -15,18 +15,25 @@ It allows you to configure reusable host profiles (similar to `ssh_config`) and 
 
 ## Installation
 
-Clone this repository and make the script executable:
+### With uv (recommended)
+
+```bash
+uv tool install git+https://github.com/bazoocaze/ssm-manager
+```
+
+### With pip
+
+```bash
+pip install git+https://github.com/bazoocaze/ssm-manager
+```
+
+### From source
 
 ```bash
 git clone https://github.com/bazoocaze/ssm-manager
 cd ssm-manager
-chmod +x ssm_manager.sh
-```
-
-(Optional) Create a symlink to use ssm-manager as a command:
-
-```bash
-ln -s $(pwd)/ssm_manager.py /usr/local/bin/ssm-manager
+uv tool install -e .
+# or: python ssm_manager.py shell <target>
 ```
 
 Requirements:

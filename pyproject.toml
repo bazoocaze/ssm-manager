@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ssm-manager"
+version = "1.0.0"
+description = "AWS SSM Session Manager simplified — shell access and port forwarding to EC2 instances"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+keywords = ["aws", "ssm", "session-manager", "ec2", "port-forwarding"]
+authors = [
+    {name = "bazoocaze"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.urls]
+Homepage = "https://github.com/bazoocaze/ssm-manager"
+Repository = "https://github.com/bazoocaze/ssm-manager"
+
+[project.scripts]
+ssm = "ssm_manager:main"
+
+[tool.setuptools]
+py-modules = ["ssm_manager"]
