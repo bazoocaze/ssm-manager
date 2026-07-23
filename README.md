@@ -1,5 +1,7 @@
 # ssm-manager
 
+[![Tests](https://github.com/bazoocaze/ssm-manager/actions/workflows/tests.yml/badge.svg)](https://github.com/bazoocaze/ssm-manager/actions/workflows/tests.yml)
+
 `ssm-manager` is a command-line tool that simplifies working with **AWS SSM Session Manager** for shell access and port
 forwarding.
 It allows you to configure reusable host profiles (similar to `ssh_config`) and then connect with a single command.

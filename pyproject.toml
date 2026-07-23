@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ssm-manager"
-version = "1.0.0"
+version = "1.0.1"
 description = "AWS SSM Session Manager simplified — shell access and port forwarding to EC2 instances"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -30,6 +30,9 @@ Repository = "https://github.com/bazoocaze/ssm-manager"
 
 [project.scripts]
 ssm = "ssm_manager:main"
+
+[dependency-groups]
+dev = ["pytest"]
 
 [tool.setuptools]
 py-modules = ["ssm_manager"]

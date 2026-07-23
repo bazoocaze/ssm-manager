@@ -56,7 +56,7 @@ EXIT_CANCELED = 130
 
 # Global configuration
 CONFIG = {
-    "version": "1.0.4",
+    "version": "1.0.1",
     "aws_cli": "aws",
     "default_config_file": os.path.expanduser('~/.ssm_config'),
     "debug": False

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1 (2026-07-23)
+
+- Added test suite (pytest, 35 tests)
+- Added GitHub Actions CI workflow
+- Added test status badge to README
+- Added dev dependency group in pyproject.toml
+- Updated AGENTS.md with testing instructions
+
 ## 1.0.0 (2026-07-23)
 
 - Stable release

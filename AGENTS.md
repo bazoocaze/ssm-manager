@@ -10,6 +10,12 @@ Single-file Python tool for AWS SSM Session Manager. Provides `shell`, `pf`, and
 ssm-manager/
   pyproject.toml        # Build config, entry point: `ssm = ssm_manager:main`
   ssm_manager.py        # All source code (single file, ~650 lines)
+  tests/                # pytest test suite
+    __init__.py
+    conftest.py
+    test_config.py
+    test_cli.py
+    test_utils.py
   README.md             # User documentation
   CHANGELOG.md          # Release history
   AGENTS.md             # This file
@@ -83,10 +89,23 @@ Requires **AWS CLI v2** installed and configured (called as `aws` subprocess).
 
 ## Testing
 
-No test framework is set up. When adding tests:
+Tests use `pytest` installed in a local `.venv` (managed by `uv`). Setup:
 
-- Use `pytest` (it is *not* a dependency — install separately if needed).
-- Test config parsing, argument parsing, and any utility functions.
+```bash
+uv venv
+uv sync --group dev
+```
+
+Run tests:
+
+```bash
+uv run pytest tests/ -v
+```
+
+What to test:
+- Config parsing (`Config`, `HostConfig`, `LocalForwardConfig`)
+- Argument parsing (`_parse_args`)
+- Utility functions (`execute_silently`, `get_free_port`, `configure_tcp_socket`, `delay`)
 - Do **not** test AWS CLI integration (requires real credentials).
 
 ## Building
