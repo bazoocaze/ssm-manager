@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.2 (2026-07-23)
+
+- Fixed GitHub Actions workflow branch from `main` to `master`
+
 ## 1.0.1 (2026-07-23)
 
 - Added test suite (pytest, 35 tests)
