@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3 (2026-07-23)
+
+- Added `run-tests.sh` convenience script
+
 ## 1.0.2 (2026-07-23)
 
 - Fixed GitHub Actions workflow branch from `main` to `master`
