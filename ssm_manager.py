@@ -47,6 +47,7 @@ import subprocess
 import sys
 import threading
 import traceback
+from importlib.metadata import version, PackageNotFoundError
 from threading import Thread, Event
 
 EXIT_OK = 0
@@ -55,8 +56,13 @@ EXIT_CONFIG_ERROR = 2
 EXIT_CANCELED = 130
 
 # Global configuration
+try:
+    _VERSION = version("ssm-manager")
+except PackageNotFoundError:
+    _VERSION = "0.0.0"
+
 CONFIG = {
-    "version": "1.0.1",
+    "version": _VERSION,
     "aws_cli": "aws",
     "default_config_file": os.path.expanduser('~/.ssm_config'),
     "debug": False

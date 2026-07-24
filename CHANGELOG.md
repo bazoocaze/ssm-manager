@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.4 (2026-07-23)
+
+- Version now read dynamically from package metadata via `importlib.metadata` instead of hardcoded value
+
 ## 1.0.3 (2026-07-23)
 
 - Added `run-tests.sh` convenience script
