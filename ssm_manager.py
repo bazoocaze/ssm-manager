@@ -472,8 +472,8 @@ def get_free_port(host: str = "0.0.0.0") -> int:
 
 
 # Function to read configuration from ~/.ssm_manager file
-def read_config_file() -> Config:
-    config_path = CONFIG["default_config_file"]
+def read_config_file(config_file_path=None) -> Config:
+    config_path = config_file_path or CONFIG["default_config_file"]
     config = Config()
     if not config.read_config_file(config_path):
         return None
@@ -594,6 +594,8 @@ def _parse_args():
     parser = argparse.ArgumentParser(description=description, prog='ssm-manager')
     parser.add_argument('-v', '--version', action='version', version='%(prog)s ' + CONFIG['version'])
     parser.add_argument('-d', '--debug', action='store_true', help='Enable debug output')
+    parser.add_argument('-c', '--config', dest='config_file', default=None,
+                        help=f'Path to configuration file (default: {CONFIG["default_config_file"]})')
     subparsers = parser.add_subparsers(dest='command', help='Commands')
 
     # Subparser for shell access
@@ -626,7 +628,7 @@ def main():
     logging.basicConfig(level=logging.DEBUG if CONFIG["debug"] else logging.INFO)
     try:
         if args.command:
-            config = read_config_file()
+            config = read_config_file(args.config_file)
             if not config:
                 return EXIT_CONFIG_ERROR
             if args.command == 'shell':

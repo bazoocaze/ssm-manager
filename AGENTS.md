@@ -129,5 +129,5 @@ When the user asks to "make release" or "release a new version":
 4. Update `CHANGELOG.md` — add a new entry `## X.Y.Z (YYYY-MM-DD)` with the changes.
 5. Update `README.md` if any feature/usage changes are relevant.
 6. Update `AGENTS.md` if project structure or conventions changed.
-7. Commit with message `release X.Y.Z`.
+7. Commit with a descriptive message summarizing the changes, e.g. `release 1.2.3: add -c flag for config file path, update docs`.
 8. Push to origin.

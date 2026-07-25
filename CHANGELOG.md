@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.5 (2026-07-24)
+
+- Added `-c` / `--config` flag to specify a custom configuration file path
+- Updated AGENTS.md with descriptive commit message convention for releases
+
 ## 1.0.4 (2026-07-23)
 
 - Version now read dynamically from package metadata via `importlib.metadata` instead of hardcoded value

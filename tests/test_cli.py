@@ -56,3 +56,17 @@ class TestParseArgs:
         with pytest.raises(SystemExit) as exc:
             _parse_args()
         assert exc.value.code == 0
+
+    def test_config_file_flag(self):
+        sys.argv = ["ssm", "-c", "/custom/path/ssm_config", "shell", "i-12345"]
+        from ssm_manager import _parse_args
+
+        args, _ = _parse_args()
+        assert args.config_file == "/custom/path/ssm_config"
+
+    def test_config_file_default(self):
+        sys.argv = ["ssm", "shell", "i-12345"]
+        from ssm_manager import _parse_args
+
+        args, _ = _parse_args()
+        assert args.config_file is None
