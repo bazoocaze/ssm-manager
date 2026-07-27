@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.6 (2026-07-26)
+
+- Kill entire process group (AWS CLI + session-manager-plugin) on shutdown
+- Added timeout fallback: SIGTERM → wait 5s → SIGKILL
+- Gateway threads now daemon for faster Ctrl+C exit
+- Removed large docstring comment block from script header
+
 ## 1.0.5 (2026-07-24)
 
 - Added `-c` / `--config` flag to specify a custom configuration file path

@@ -1,40 +1,4 @@
 #!/usr/bin/env python3
-"""
-SSM Connection Manager
-
-Comandos:
-  - shell <[user@]host>
-      Conecta uma sessão SSM com o host remoto
-  - pf <host>
-      Sobe todos os port-forwardings definidos para o host e mantém até Ctrl+C
-  - pfgw <host>
-      Gateway de port-forwardings, onde a conexão SSM é feita sob demanda (Ctrl+C para finalizar)
-
-Configuração: ~/.ssm_config (semelhante ao ~/.ssh/config)
-Exemplo:
-
-  Host app-*
-    Hostname i-0123456789abcdef0
-    User ubuntu
-    Profile prod
-    Region us-east-1
-    ProxyCommand aws ssm start-session --target {target} --region {region} --profile {profile}
-    LocalForward 15432 127.0.0.1:5432
-    LocalForward 18080 localhost:8080
-
-Notas:
-- Hostname (opcional) define o "target" SSM; se ausente, usa o nome do Host.
-- User (opcional) define o usuário para a sessão SSM interativa.
-- Profile (opcional) mapeia para --profile do AWS CLI.
-- Region (opcional) default em CONFIG['DEFAULT_REGION'].
-- ProxyCommand (opcional) usado APENAS no comando "shell"; ignorado em "pf".
-- LocalForward N host:port pode ocorrer múltiplas vezes.
-- Se o host não for encontrado e parecer um instance-id (i-* ou mi-*), tenta conexão direta.
-
-Requisitos:
-- awscli instalado e autenticado.
-- Permissões de SSM para start-session e documentos de PF.
-"""
 
 import argparse
 import fnmatch
@@ -240,8 +204,14 @@ class LocalForwardSimpleController:
     def stop(self):
         if self.is_running():
             self._logger.debug("stop -> finishing")
-            self._external_process.terminate()
-            self._external_process.wait()
+            pgid = os.getpgid(self._external_process.pid)
+            os.killpg(pgid, signal.SIGTERM)
+            try:
+                self._external_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._logger.warning("AWS CLI did not respond to SIGTERM, sending SIGKILL")
+                os.killpg(pgid, signal.SIGKILL)
+                self._external_process.wait()
             self._logger.debug("stop -> external process finished")
         else:
             self._logger.debug("stop -> not running")
@@ -287,7 +257,7 @@ class LocalForwardSimpleController:
 
         self._logger.debug(f"EXEC: {command_line}")
         self._external_process_exit_code = None
-        self._external_process = subprocess.Popen(command_line, shell=False)
+        self._external_process = subprocess.Popen(command_line, shell=False, start_new_session=True)
         self._logger.debug("external process started")
 
     def cleanup(self):
@@ -319,7 +289,7 @@ class LocalForwardGatewayController:
             self._server_socket.bind(('localhost', self._local_forward_config.local_port))
             self._server_socket.listen(10)
             self._logger.info(f"Listening on port {self._local_forward_config.local_port} -> {self._remote_desc}")
-            self._accept_thread = Thread(target=self._run, daemon=False)
+            self._accept_thread = Thread(target=self._run, daemon=True)
             self._accept_thread.start()
         except Exception as ex:
             if self._server_socket:
@@ -390,7 +360,7 @@ class LocalForwardGatewayController:
                                  info: str = None):
         threading.Thread(target=self._forward_data,
                          args=(source_socket, destination_socket, info),
-                         daemon=False).start()
+                         daemon=True).start()
 
     def _connect_to_controller(self, other_socket: socket.socket, endpoint):
         repetitions = 8
