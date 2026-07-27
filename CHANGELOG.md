@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.7 (2026-07-26)
+
+- Shell: SIGINT ignored (passes through to AWS CLI for remote Ctrl+C)
+- Shell: SIGTERM/SIGHUP use default handlers (terminate process + child)
+- Removed warning log from signal handler to avoid noise on Ctrl+C
+
 ## 1.0.6 (2026-07-26)
 
 - Kill entire process group (AWS CLI + session-manager-plugin) on shutdown

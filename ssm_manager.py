@@ -548,6 +548,9 @@ def command_start_shell(args, config: Config):
                          '{"command":["sudo su - ' + user + '"]}']
 
     logging.debug(f"EXEC: {command_line}")
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    signal.signal(signal.SIGHUP, signal.SIG_DFL)
     try:
         completed = subprocess.run(command_line, shell=False)
         return completed.returncode
