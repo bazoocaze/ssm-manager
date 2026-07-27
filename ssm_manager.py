@@ -585,7 +585,6 @@ def _parse_args():
 
 
 def _signal_handler(signum, frame):
-    logging.warning(f"Operation interrupted by signal {signum}")
     SHUTDOWN.set()
 
 
