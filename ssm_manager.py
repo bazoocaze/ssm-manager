@@ -2,9 +2,11 @@
 
 import argparse
 import fnmatch
+import json
 import logging
 import os
 import select
+import shlex
 import signal
 import socket
 import subprocess
@@ -545,7 +547,7 @@ def command_start_shell(args, config: Config):
 
     if user:
         command_line += ["--document-name", "AWS-StartInteractiveCommand", "--parameters",
-                         '{"command":["sudo su - ' + user + '"]}']
+                         json.dumps({"command": [f"sudo -u {shlex.quote(user)} -i"]})]
 
     logging.debug(f"EXEC: {command_line}")
     signal.signal(signal.SIGINT, signal.SIG_IGN)

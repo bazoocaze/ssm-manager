@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.8 (2026-07-26)
+
+- Fixed shell command injection via `user` config: uses `shlex.quote()` + `json.dumps()`
+- Added `json` and `shlex` stdlib imports
+
 ## 1.0.7 (2026-07-26)
 
 - Shell: SIGINT ignored (passes through to AWS CLI for remote Ctrl+C)
