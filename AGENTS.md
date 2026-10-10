@@ -122,12 +122,13 @@ When the user asks to "make release" or "release a new version":
 
 1. Ask which version bump (major.minor.patch) or read the explicit version from the user.
 2. Use SemVer convention:
-   - **patch** — fixes, minor breaking changes, new small features.
+   - **patch** — fixes, minor breaking changes, new small features. Default bump.
    - **minor** — new medium features, medium breaking changes.
    - **major** — always confirm with the user before incrementing.
 3. Update `pyproject.toml` — set `version = "X.Y.Z"`.
-4. Update `CHANGELOG.md` — add a new entry `## X.Y.Z (YYYY-MM-DD)` with the changes.
-5. Update `README.md` if any feature/usage changes are relevant.
-6. Update `AGENTS.md` if project structure or conventions changed.
-7. Commit with a descriptive message summarizing the changes, e.g. `release 1.2.3: add -c flag for config file path, update docs`.
-8. Push to origin.
+4. Run `uv lock` — regenerates `uv.lock` from `pyproject.toml`. Always include the updated `uv.lock` in the release commit.
+5. Update `CHANGELOG.md` — add a new entry `## X.Y.Z (YYYY-MM-DD)` with the changes.
+6. Update `README.md` if any feature/usage changes are relevant.
+7. Update `AGENTS.md` if project structure or conventions changed.
+8. Commit with a descriptive message summarizing the changes, e.g. `release 1.2.3: add -c flag for config file path, update docs`.
+9. Push to origin.

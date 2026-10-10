@@ -12,6 +12,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import traceback
 from importlib.metadata import version, PackageNotFoundError
 from threading import Thread, Event
@@ -345,7 +346,11 @@ class LocalForwardGatewayController:
                 other_local_port = self._inner_controller.get_effective_local_port()
                 other_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 configure_tcp_socket(other_socket)
-                self._connect_to_controller(other_socket, ('localhost', other_local_port))
+                try:
+                    self._connect_to_controller(other_socket, ('localhost', other_local_port))
+                except Exception:
+                    execute_silently(other_socket.close)
+                    raise
                 self._start_socket_forwarding(client_socket, other_socket, client_info)
                 self._start_socket_forwarding(other_socket, client_socket)
                 self._socket_list.append(client_socket)
@@ -365,18 +370,19 @@ class LocalForwardGatewayController:
                          daemon=True).start()
 
     def _connect_to_controller(self, other_socket: socket.socket, endpoint):
-        repetitions = 8
-        delay_value = 0.250
-        while not self._stopped:
+        deadline = time.monotonic() + 60
+        last_error = None
+        while not self._stopped and time.monotonic() < deadline:
+            if not self._inner_controller.is_running():
+                raise Exception("SSM process died before binding the tunnel port")
             try:
                 return other_socket.connect(endpoint)
             except Exception as e:
-                repetitions -= 1
-                if repetitions == 0:
-                    raise e
-                delay(delay_value)
-                delay_value *= 2
-        raise Exception("Connection to controller canceled")
+                last_error = e
+                delay(0.5)
+        if self._stopped:
+            raise Exception("Connection to controller canceled")
+        raise last_error or Exception("Timed out waiting for the SSM tunnel port")
 
     def _start_inner_controller_if_needed(self):
         if self._inner_controller is None:

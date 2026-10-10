@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.9 (2026-10-10)
+
+- Gateway (`pfgw`): replaced the exponential retry backoff (0.25s doubling to 16s, 8 attempts, ~32s cap) with a fixed 0.5s poll and a 60s budget, so the first connection no longer waits up to 16s for the SSM port to bind — fixes first-connection failures when the client timeout is shorter than the backoff window
+- Gateway: fail fast when the `aws ssm start-session` subprocess dies before binding the port (previously it burned the whole backoff)
+- Gateway: close the inner tunnel socket when the connect attempt fails
+- Added `import time` (was missing; the module relied only on `Event.wait`)
+- Added `tests/test_gateway.py` covering the retry poll, fail-fast, timeout budget and late-binding listener
+
 ## 1.0.8 (2026-07-26)
 
 - Fixed shell command injection via `user` config: uses `shlex.quote()` + `json.dumps()`
