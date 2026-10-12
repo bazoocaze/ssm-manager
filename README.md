@@ -62,8 +62,14 @@ Host production
     Hostname i-0123456789abcdef0
     Profile prod
     Region us-east-1
-    LocalForward 8080 127.0.0.1:80
+    LocalForward 8080 10.0.1.24:80
 ```
+
+> **Remote address is not loopback.** The `session-manager-plugin` refuses to forward to a
+> loopback address on the instance — `LocalForward 8080 127.0.0.1:80` fails with
+> `Forwarding to IP address 127.0.0.1 is forbidden`. Use the address the instance itself
+> can reach: its own private IP (e.g. `10.0.1.24`), or the IP/hostname of another host
+> reachable from it (a DB in the same VPC, for example).
 
 **2. Connect to shell:**
 

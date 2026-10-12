@@ -31,7 +31,7 @@ except PackageNotFoundError:
 CONFIG = {
     "version": _VERSION,
     "aws_cli": "aws",
-    "default_config_file": os.path.expanduser('~/.ssm_config'),
+    "default_config_file": os.path.expanduser('~/.ssm_manager'),
     "debug": False
 }
 

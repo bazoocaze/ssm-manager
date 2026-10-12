@@ -16,6 +16,8 @@ ssm-manager/
     test_config.py
     test_cli.py
     test_utils.py
+    test_gateway.py
+  infra/                # CloudFormation validation stack — local only, gitignored
   README.md             # User documentation
   CHANGELOG.md          # Release history
   AGENTS.md             # This file
@@ -106,6 +108,7 @@ What to test:
 - Config parsing (`Config`, `HostConfig`, `LocalForwardConfig`)
 - Argument parsing (`_parse_args`)
 - Utility functions (`execute_silently`, `get_free_port`, `configure_tcp_socket`, `delay`)
+- Gateway controller (`LocalForwardGatewayController`): connect retry poll, fail-fast when the AWS CLI dies, timeout budget
 - Do **not** test AWS CLI integration (requires real credentials).
 
 ## Building

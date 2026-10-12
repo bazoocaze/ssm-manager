@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.10 (2026-10-11)
+
+- Fixed the default configuration file path: `~/.ssm_config` → `~/.ssm_manager`, matching the path documented in the README. **Behavior change:** anyone with an existing `~/.ssm_config` must rename it to `~/.ssm_manager` or keep using `-c ~/.ssm_config`
+- README: documented that a `LocalForward` target must not be a loopback address — `session-manager-plugin` rejects `127.0.0.1` with `Forwarding to IP address 127.0.0.1 is forbidden`; the example now uses a private address reachable from the instance
+- AGENTS.md: added `tests/test_gateway.py` to the project structure and the gateway to the tested areas
+
 ## 1.0.9 (2026-10-10)
 
 - Gateway (`pfgw`): replaced the exponential retry backoff (0.25s doubling to 16s, 8 attempts, ~32s cap) with a fixed 0.5s poll and a 60s budget, so the first connection no longer waits up to 16s for the SSM port to bind — fixes first-connection failures when the client timeout is shorter than the backoff window
