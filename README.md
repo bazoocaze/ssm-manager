@@ -4,7 +4,7 @@
 
 A CLI tool that makes **AWS SSM Session Manager** feel like SSH.
 
-Define reusable host profiles in `~/.ssm_manager` and connect with a single command:
+Define reusable host profiles in `~/.ssm_config` and connect with a single command:
 
 ```
 ssm-manager shell production
@@ -42,7 +42,7 @@ ssm-manager pf production
 uv tool install git+https://github.com/bazoocaze/ssm-manager
 
 # Define a host alias
-cat >> ~/.ssm_manager <<EOF
+cat >> ~/.ssm_config <<EOF
 Host production
     Hostname i-0123456789abcdef0
     Profile my-aws-profile
@@ -55,7 +55,7 @@ ssm-manager shell production
 
 ## Typical Workflow
 
-**1. Define a host** in `~/.ssm_manager`:
+**1. Define a host** in `~/.ssm_config`:
 
 ```
 Host production
@@ -88,7 +88,7 @@ ssm-manager pf production
 - **Shell access** via SSM — no SSH required.
 - **Port forwarding** — forward local ports to remote targets.
 - **Port forwarding gateway** — on-demand SSM connections (lazy tunnels).
-- **Host aliases** — SSH-like `~/.ssm_manager` config file.
+- **Host aliases** — SSH-like `~/.ssm_config` config file.
 - **Wildcard patterns** — `Host web-*` matches multiple instances.
 - **AWS profile & region** — per-host profile/region settings.
 - **Multiple regions** — hosts in different regions, one config file.
@@ -131,7 +131,7 @@ Requirements:
 | `ssm-manager pfgw <target>`   | Start port forwarding gateway (lazy tunnels) |
 | `ssm-manager -d ...`          | Enable debug output                          |
 
-## Configuration File (`~/.ssm_manager`)
+## Configuration File (`~/.ssm_config`)
 
 INI-like format supporting host aliases, wildcards, and per-host settings.
 

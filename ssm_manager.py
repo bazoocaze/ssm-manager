@@ -31,7 +31,7 @@ except PackageNotFoundError:
 CONFIG = {
     "version": _VERSION,
     "aws_cli": "aws",
-    "default_config_file": os.path.expanduser('~/.ssm_manager'),
+    "default_config_file": os.path.expanduser('~/.ssm_config'),
     "debug": False
 }
 
@@ -449,7 +449,7 @@ def get_free_port(host: str = "0.0.0.0") -> int:
         return s.getsockname()[1]
 
 
-# Function to read configuration from ~/.ssm_manager file
+# Function to read configuration from ~/.ssm_config file
 def read_config_file(config_file_path=None) -> Config:
     config_path = config_file_path or CONFIG["default_config_file"]
     config = Config()

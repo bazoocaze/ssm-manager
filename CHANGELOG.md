@@ -1,10 +1,18 @@
 # Changelog
 
+## 1.0.11 (2026-10-11)
+
+- **Reverts the breaking change introduced in 1.0.10.** `default_config_file` goes back to `~/.ssm_config`, the value shipped in every release from 1.0.0 through 1.0.9 — existing users are unaffected again
+- Documentation now reflects the code: `README.md` (5 occurrences) and `AGENTS.md` (2 occurrences) document `~/.ssm_config` instead of `~/.ssm_manager`
+- Anyone who renamed their config to `~/.ssm_manager` after installing 1.0.10 should rename it back to `~/.ssm_config`
+- Added two guard tests: one pinning `default_config_file`, one asserting `README.md` and `AGENTS.md` document exactly that value, so doc and code cannot silently diverge again
+
 ## 1.0.10 (2026-10-11)
 
 - Fixed the default configuration file path: `~/.ssm_config` → `~/.ssm_manager`, matching the path documented in the README. **Behavior change:** anyone with an existing `~/.ssm_config` must rename it to `~/.ssm_manager` or keep using `-c ~/.ssm_config`
 - README: documented that a `LocalForward` target must not be a loopback address — `session-manager-plugin` rejects `127.0.0.1` with `Forwarding to IP address 127.0.0.1 is forbidden`; the example now uses a private address reachable from the instance
 - AGENTS.md: added `tests/test_gateway.py` to the project structure and the gateway to the tested areas
+- **Reverted in 1.0.11** — this changed the default config path for every user of 1.0.0–1.0.9
 
 ## 1.0.9 (2026-10-10)
 

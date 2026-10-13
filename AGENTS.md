@@ -58,7 +58,7 @@ Requires **AWS CLI v2** installed and configured (called as `aws` subprocess).
 
 | Module (inside `ssm_manager.py`) | Responsibility |
 |---|---|
-| `Config` / `HostConfig` / `LocalForwardConfig` | Parse `~/.ssm_manager` config file |
+| `Config` / `HostConfig` / `LocalForwardConfig` | Parse `~/.ssm_config` config file |
 | `command_start_shell()` | `shell` subcommand — spawns `aws ssm start-session` |
 | `command_port_forwarding()` | `pf` subcommand — one SSM session per `LocalForward`, kept alive |
 | `command_port_forwarding_gateway()` | `pfgw` subcommand — lazy tunnels via local TCP listener |
@@ -71,10 +71,11 @@ Requires **AWS CLI v2** installed and configured (called as `aws` subprocess).
 - **No threading in `shell` or `pf`** — simple subprocess with `run()`.
 - **Gateway mode (`pfgw`)** uses `threading.Thread` + `socket` for on-demand connections.
 - **AWS CLI invocation**: `aws ssm start-session` with `--document-name` and `--parameters` JSON. Port forwarding uses the `AWS-StartPortForwardingSessionToRemoteHost` document.
-- **Config file**: `~/.ssm_manager`, INI-like format parsed by `ConfigParser`-style custom parser (not `configparser` stdlib). Supports `Host`, `Hostname`, `User`, `Port`, `LocalForward`, `Profile`, `Region`.
+- **Config file**: `~/.ssm_config`, INI-like format parsed by `ConfigParser`-style custom parser (not `configparser` stdlib). Supports `Host`, `Hostname`, `User`, `Port`, `LocalForward`, `Profile`, `Region`.
 
 ## Coding Conventions
 
+- The code is the source of truth. Documentation describes the code as it is; when a document and the code disagree, correct the document. Never change runtime behavior to match a document, because users depend on what already shipped - such a change is breaking, needs explicit approval, a version bump and a migration note in the changelog.
 - No external Python dependencies — stdlib only.
 - Type hints where practical (`list[T]`, `| None`, etc. — Python 3.9+ compat).
 - `argparse` for CLI (no click/typer).
