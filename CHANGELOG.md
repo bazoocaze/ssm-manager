@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.12 (2026-10-13)
+
+- **Gateway (`pfgw`): fixed first-connection failures on macOS.** `_connect_to_controller` reused a single tunnel socket for every `connect()` retry. Linux resets a refused socket, so retrying worked there; Darwin answers the retry with `EISCONN` ("Socket is already connected"), so the loop never recovered and burned the full 60s budget — the first client timed out and every connection queued behind it failed too, since the accept loop is blocked during setup. It now opens a **fresh socket per attempt** and consults `SO_ERROR` instead of trusting the `connect()` return, so a refused connection can no longer poison the retries
+- Added a regression test that models the Darwin behavior (a second `connect()` on the same socket raises `EISCONN`) and asserts the gateway uses a new socket for every attempt
+- `AGENTS.md`: the code must stay portable across **Linux and macOS**, and cross-platform socket behavior must be covered by tests
+
 ## 1.0.11 (2026-10-11)
 
 - **Reverts the breaking change introduced in 1.0.10.** `default_config_file` goes back to `~/.ssm_config`, the value shipped in every release from 1.0.0 through 1.0.9 — existing users are unaffected again

@@ -344,13 +344,7 @@ class LocalForwardGatewayController:
             self._start_inner_controller_if_needed()
             if self._inner_controller.is_running():
                 other_local_port = self._inner_controller.get_effective_local_port()
-                other_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                configure_tcp_socket(other_socket)
-                try:
-                    self._connect_to_controller(other_socket, ('localhost', other_local_port))
-                except Exception:
-                    execute_silently(other_socket.close)
-                    raise
+                other_socket = self._connect_to_controller(('localhost', other_local_port))
                 self._start_socket_forwarding(client_socket, other_socket, client_info)
                 self._start_socket_forwarding(other_socket, client_socket)
                 self._socket_list.append(client_socket)
@@ -369,16 +363,27 @@ class LocalForwardGatewayController:
                          args=(source_socket, destination_socket, info),
                          daemon=True).start()
 
-    def _connect_to_controller(self, other_socket: socket.socket, endpoint):
+    def _connect_to_controller(self, endpoint) -> socket.socket:
+        # One fresh socket per attempt: on Darwin a retry connect() on a socket whose previous
+        # connect() was refused answers EISCONN ("Socket is already connected") instead of
+        # retrying, so the loop would spin forever on that socket. Check SO_ERROR too, since
+        # the kernel can report success on a connection that was actually refused.
         deadline = time.monotonic() + 60
         last_error = None
         while not self._stopped and time.monotonic() < deadline:
             if not self._inner_controller.is_running():
                 raise Exception("SSM process died before binding the tunnel port")
+            other_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            configure_tcp_socket(other_socket)
             try:
-                return other_socket.connect(endpoint)
+                other_socket.connect(endpoint)
+                error = other_socket.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+                if error:
+                    raise OSError(error, os.strerror(error))
+                return other_socket
             except Exception as e:
                 last_error = e
+                execute_silently(other_socket.close)
                 delay(0.5)
         if self._stopped:
             raise Exception("Connection to controller canceled")
