@@ -291,6 +291,11 @@ class LocalForwardGatewayController:
             self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self._server_socket.bind(('localhost', self._local_forward_config.local_port))
             self._server_socket.listen(10)
+            # Short listener timeout: accept() then returns on its own so the loop can notice
+            # stop() on every platform. On macOS shutdown() does NOT wake a blocked accept()
+            # (it answers ENOTCONN) -- only close() does -- so without this the accept thread
+            # could stay blocked through interpreter shutdown, delaying process exit.
+            self._server_socket.settimeout(0.5)
             self._logger.info(f"Listening on port {self._local_forward_config.local_port} -> {self._remote_desc}")
             self._accept_thread = Thread(target=self._run, daemon=True)
             self._accept_thread.start()
@@ -302,13 +307,14 @@ class LocalForwardGatewayController:
     def stop(self):
         self._stopped = True
         if self._server_socket:
+            # Closing the listener (not just shutdown) is what actually unblocks a blocked
+            # accept() on macOS, so do it before join() to wake the accept thread right away.
             execute_silently(lambda: self._server_socket.shutdown(socket.SHUT_RDWR))
+            execute_silently(lambda: self._server_socket.close())
         if self._inner_controller:
             self._inner_controller.stop()
         if self._accept_thread:
-            self._accept_thread.join(timeout=1)
-        if self._server_socket:
-            execute_silently(lambda: self._server_socket.close())
+            self._accept_thread.join(timeout=2)
         for client_socket in self._socket_list.copy():
             execute_silently(lambda: client_socket.shutdown(socket.SHUT_RDWR))
             self._socket_list.remove(client_socket)
@@ -329,7 +335,11 @@ class LocalForwardGatewayController:
     def _try_run(self):
         self._logger.debug(f"Waiting connections on port {self._local_forward_config.local_port}")
         while not self._stopped:
-            client_socket, addr = self._server_socket.accept()
+            try:
+                client_socket, addr = self._server_socket.accept()
+            except socket.timeout:
+                # Idle tick of the listener timeout: re-check _stopped and keep waiting.
+                continue
             client_info = f"{addr[0]}:{addr[1]}"
             if self._stopped:
                 self._logger.info(f"Refused connection from {client_info} (reason: stopping)")

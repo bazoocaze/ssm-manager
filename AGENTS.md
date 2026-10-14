@@ -76,7 +76,7 @@ Requires **AWS CLI v2** installed and configured (called as `aws` subprocess).
 ## Coding Conventions
 
 - The code is the source of truth. Documentation describes the code as it is; when a document and the code disagree, correct the document.
-- **Platform support: Linux and macOS.** The code must work on both; do not rely on Linux-only behavior. Socket semantics in particular differ — e.g. retrying `connect()` on a socket whose previous `connect()` was refused is allowed on Linux but returns `EISCONN` ("Socket is already connected") on Darwin. Create a fresh socket per attempt and consult `SO_ERROR` instead of trusting a `connect()` retry. (`EISCONN` is errno 106 on Linux and 56 on macOS.)
+- **Platform support: Linux and macOS.** The code must work on both; do not rely on Linux-only behavior. Socket semantics in particular differ — e.g. retrying `connect()` on a socket whose previous `connect()` was refused is allowed on Linux but returns `EISCONN` ("Socket is already connected") on Darwin (create a fresh socket per attempt and consult `SO_ERROR` instead of trusting a `connect()` retry; `EISCONN` is errno 106 on Linux and 56 on macOS). Likewise, `shutdown()` on a listening socket wakes a blocked `accept()` on Linux but returns `ENOTCONN` and does **not** wake it on macOS — only `close()` does. Never block on `accept()` without a timeout: the gateway listener carries a short `settimeout()` so its accept loop can notice shutdown on every platform.
 - No external Python dependencies — stdlib only.
 - Type hints where practical (`list[T]`, `| None`, etc. — Python 3.9+ compat).
 - `argparse` for CLI (no click/typer).
@@ -112,6 +112,7 @@ What to test:
 - Utility functions (`execute_silently`, `get_free_port`, `configure_tcp_socket`, `delay`)
 - Gateway controller (`LocalForwardGatewayController`): connect retry poll, fail-fast when the AWS CLI dies, timeout budget, fresh socket per connect attempt (platform portability — a reused socket breaks on macOS)
 - Cross-platform socket behavior: tests that model a *refused* `connect()` must assert the next attempt uses a **new** socket, so the Darwin `EISCONN` regression cannot come back.
+- Gateway shutdown: `stop()` must return promptly with no client connected. The accept loop must treat `socket.timeout` as an idle tick (listener `settimeout()`), so the thread exits even where `shutdown()` does not wake `accept()` (macOS) — a test should flip `_stopped` without calling `shutdown()`/`close()` and assert the thread still dies.
 - Do **not** test AWS CLI integration (requires real credentials).
 
 ## Building

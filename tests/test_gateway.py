@@ -206,3 +206,47 @@ class TestHandleClientConnection:
         finally:
             client.close()
             peer.close()
+
+
+class TestGatewayShutdown:
+    """stop() must finish promptly even with no client connection (macOS shutdown() does not
+    wake a blocked accept(); the listener timeout is the portable wake-up)."""
+
+    def _start_gateway(self):
+        lf = LocalForwardConfig()
+        lf.parse_line(1, "localforward", "0 127.0.0.1:5432")  # port 0 -> OS picks a free port
+        gw = LocalForwardGatewayController("i-test", HostConfig("i-test"), lf)
+        gw._inner_controller = FakeInnerController()
+        gw.start()
+        return gw
+
+    def test_listener_has_short_timeout(self):
+        gw = self._start_gateway()
+        try:
+            assert gw._server_socket.gettimeout() == pytest.approx(0.5)
+        finally:
+            gw.stop()
+
+    def test_stop_is_prompt_without_connections(self):
+        gw = self._start_gateway()
+        try:
+            assert gw.is_running()
+            started = time.monotonic()
+            gw.stop()
+            elapsed = time.monotonic() - started
+            assert not gw.is_running()
+        finally:
+            gw.stop()  # idempotent
+        assert elapsed < 2.0
+
+    def test_accept_loop_exits_on_listener_timeout_without_wakeup(self):
+        # Simulate the macOS case: stop() only flips _stopped, without shutdown()/close()
+        # waking accept(). The 0.5s listener timeout must be enough for the loop to exit.
+        gw = self._start_gateway()
+        try:
+            assert gw.is_running()
+            gw._stopped = True
+            gw._accept_thread.join(timeout=2.0)
+            assert not gw._accept_thread.is_alive()
+        finally:
+            gw.stop()

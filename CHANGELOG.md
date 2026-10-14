@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.13 (2026-10-13)
+
+- **Gateway (`pfgw`): fixed slow shutdown on macOS.** Ctrl+C / `SIGTERM` could take tens of seconds to end the process even with no client connected. `LocalForwardGatewayController.stop()` relied on `shutdown()` on the listening socket to wake the blocked `accept()`. Linux does that; macOS answers `ENOTCONN` and leaves `accept()` blocked — only `close()` wakes it, and the code closed the socket *after* the join. The accept thread stayed stuck and delayed interpreter exit. The listener now carries a short `settimeout(0.5)` and the accept loop treats `socket.timeout` as an idle tick, so the thread notices `stop()` on every platform; `stop()` also closes the listener before joining it. The timeout costs ~0.02% of a core and does not affect accepted sockets (they stay blocking)
+- Added regression tests: the listener carries a short timeout, `stop()` without connections finishes promptly, and the accept loop exits on the listener timeout alone (no `shutdown()`/`close()` wake-up). The latter two fail on the previous code on any platform, not just macOS
+- `AGENTS.md`: documents that `shutdown()` does **not** wake a blocked `accept()` on macOS and that the accept loop must never block without a timeout
+
 ## 1.0.12 (2026-10-13)
 
 - **Gateway (`pfgw`): fixed first-connection failures on macOS.** `_connect_to_controller` reused a single tunnel socket for every `connect()` retry. Linux resets a refused socket, so retrying worked there; Darwin answers the retry with `EISCONN` ("Socket is already connected"), so the loop never recovered and burned the full 60s budget — the first client timed out and every connection queued behind it failed too, since the accept loop is blocked during setup. It now opens a **fresh socket per attempt** and consults `SO_ERROR` instead of trusting the `connect()` return, so a refused connection can no longer poison the retries

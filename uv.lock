@@ -122,7 +122,7 @@ wheels = [
 
 [[package]]
 name = "ssm-manager"
-version = "1.0.12"
+version = "1.0.13"
 source = { editable = "." }
 
 [package.dev-dependencies]
