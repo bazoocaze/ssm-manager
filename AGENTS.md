@@ -2,7 +2,7 @@
 
 ## Overview
 
-Single-file Python tool for AWS SSM Session Manager. Provides `shell`, `pf`, and `pfgw` subcommands to connect to EC2 instances without SSH.
+Single-file Python tool for AWS SSM Session Manager. Provides the `shell` and `pfgw` subcommands to connect to EC2 instances without SSH. The older `pf` subcommand still works but is deprecated in favor of `pfgw` and is no longer documented in the README.
 
 ## Project Structure
 
@@ -60,7 +60,7 @@ Requires **AWS CLI v2** installed and configured (called as `aws` subprocess).
 |---|---|
 | `Config` / `HostConfig` / `LocalForwardConfig` | Parse `~/.ssm_config` config file |
 | `command_start_shell()` | `shell` subcommand — spawns `aws ssm start-session` |
-| `command_port_forwarding()` | `pf` subcommand — one SSM session per `LocalForward`, kept alive |
+| `command_port_forwarding()` | `pf` subcommand (deprecated) — one SSM session per `LocalForward`, kept alive |
 | `command_port_forwarding_gateway()` | `pfgw` subcommand — lazy tunnels via local TCP listener |
 | `_parse_args()` | `argparse` CLI definition |
 | `main()` | Entry point — parsing, signal handling, dispatch |
@@ -71,7 +71,7 @@ Requires **AWS CLI v2** installed and configured (called as `aws` subprocess).
 - **No threading in `shell` or `pf`** — simple subprocess with `run()`.
 - **Gateway mode (`pfgw`)** uses `threading.Thread` + `socket` for on-demand connections.
 - **AWS CLI invocation**: `aws ssm start-session` with `--document-name` and `--parameters` JSON. Port forwarding uses the `AWS-StartPortForwardingSessionToRemoteHost` document.
-- **Config file**: `~/.ssm_config`, INI-like format parsed by `ConfigParser`-style custom parser (not `configparser` stdlib). Supports `Host`, `Hostname`, `User`, `Port`, `LocalForward`, `Profile`, `Region`.
+- **Config file**: `~/.ssm_config`, INI-like format parsed by `ConfigParser`-style custom parser (not `configparser` stdlib). The only recognized directives are the keys in `HostConfig.options` (`Hostname`, `User`, `Profile`, `Region`) plus `Host` and `LocalForward`; anything else logs an "unrecognized option" warning. `LocalForward` takes `<local_port> <remote_addr>:<remote_port>` (space-separated; the colon form `8080:127.0.0.1:80` is rejected), and the remote address must not be loopback — the `session-manager-plugin` refuses it.
 
 ## Coding Conventions
 
@@ -83,6 +83,7 @@ Requires **AWS CLI v2** installed and configured (called as `aws` subprocess).
 - AWS CLI invoked via `subprocess`, not `boto3`.
 - Signal handlers for graceful shutdown (SIGTERM, SIGINT, SIGHUP).
 - Logging via `logging` module; debug mode sets level to `DEBUG`.
+- **README examples**: use `pfgw` (the lazy-tunnel gateway) in port forwarding examples — the README must not mention `pf` at all, since it is deprecated. Keep examples environment-neutral — name hosts and profiles `development`/`dev`, never `production`/`prod`. Example `LocalForward` rules must use the real syntax and a non-loopback remote address.
 
 ## Adding a New Subcommand
 

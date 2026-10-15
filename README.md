@@ -7,7 +7,7 @@ A CLI tool that makes **AWS SSM Session Manager** feel like SSH.
 Define reusable host profiles in `~/.ssm_config` and connect with a single command:
 
 ```
-ssm-manager shell production
+ssm-manager shell development
 ```
 
 instead of long `aws ssm start-session --target ... --profile ... --region ...` invocations.
@@ -19,20 +19,20 @@ instead of long `aws ssm start-session --target ... --profile ... --region ...` 
 ```bash
 aws ssm start-session \
     --target i-0123456789abcdef0 \
-    --profile production \
+    --profile development \
     --region us-east-1
 ```
 
 **With ssm-manager:**
 
 ```bash
-ssm-manager shell production
+ssm-manager shell development
 ```
 
 Also works for port forwarding:
 
 ```bash
-ssm-manager pf production
+ssm-manager pfgw development
 ```
 
 ## Quick Start
@@ -43,14 +43,14 @@ uv tool install git+https://github.com/bazoocaze/ssm-manager
 
 # Define a host alias
 cat >> ~/.ssm_config <<EOF
-Host production
+Host development
     Hostname i-0123456789abcdef0
     Profile my-aws-profile
     Region us-east-1
 EOF
 
 # Connect
-ssm-manager shell production
+ssm-manager shell development
 ```
 
 ## Typical Workflow
@@ -58,9 +58,9 @@ ssm-manager shell production
 **1. Define a host** in `~/.ssm_config`:
 
 ```
-Host production
+Host development
     Hostname i-0123456789abcdef0
-    Profile prod
+    Profile dev
     Region us-east-1
     LocalForward 8080 10.0.1.24:80
 ```
@@ -74,13 +74,13 @@ Host production
 **2. Connect to shell:**
 
 ```bash
-ssm-manager shell production
+ssm-manager shell development
 ```
 
 **3. Start a tunnel:**
 
 ```bash
-ssm-manager pf production
+ssm-manager pfgw development
 ```
 
 ## Features
@@ -124,12 +124,11 @@ Requirements:
 
 ## Commands
 
-| Command                | Description                                  |
-|------------------------|----------------------------------------------|
-| `ssm-manager shell <target>`  | Start an SSM shell session                   |
-| `ssm-manager pf <target>`     | Start port forwarding                        |
-| `ssm-manager pfgw <target>`   | Start port forwarding gateway (lazy tunnels) |
-| `ssm-manager -d ...`          | Enable debug output                          |
+| Command                      | Description                                  |
+|------------------------------|----------------------------------------------|
+| `ssm-manager shell <target>` | Start an SSM shell session                   |
+| `ssm-manager pfgw <target>`  | Start port forwarding gateway (lazy tunnels) |
+| `ssm-manager -d ...`         | Enable debug output                          |
 
 ## Configuration File (`~/.ssm_config`)
 
@@ -139,13 +138,13 @@ INI-like format supporting host aliases, wildcards, and per-host settings.
 Host i-0123456789abcdef0
     Profile my-aws-profile
     Region us-east-1
-    LocalForward 8080:127.0.0.1:80
+    LocalForward 8080 10.0.1.24:80
 
 Host web-*
     Hostname i-0123456789abcdef0
     User ubuntu
     Region us-west-2
-    LocalForward 9090 127.0.0.1:443
+    LocalForward 9090 10.0.2.15:443
 ```
 
 | Directive       | Description                                        |
@@ -155,4 +154,4 @@ Host web-*
 | `User`          | Username for shell session                         |
 | `Profile`       | AWS CLI profile                                    |
 | `Region`        | AWS region                                         |
-| `LocalForward`  | Local port forwarding rule                         |
+| `LocalForward`  | Local port forwarding: `LocalForward <local_port> <remote_addr>:<remote_port>` (remote address must not be loopback) |

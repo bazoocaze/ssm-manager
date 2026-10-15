@@ -599,12 +599,12 @@ def _parse_args():
     shell_parser.add_argument('target', help='Target instance ID or pattern from config file')
 
     # Subparser for port forwarding
-    pf_parser = subparsers.add_parser('pf', help='Start port forwarding')
+    pf_parser = subparsers.add_parser('pf', help='Start port forwarding (deprecated, use pfgw)')
     pf_parser.add_argument('target', help='Target instance ID or pattern from config file')
 
     # Subparser for port forwarding gateway
-    pfgw_parser = subparsers.add_parser('pfgw', help='Start port forwarding gateway',
-                                        description="Port forwarding gateway starts SSM connections on demand.")
+    pfgw_parser = subparsers.add_parser('pfgw', help='Start port forwarding gateway (lazy tunnels)',
+                                        description="Port forwarding gateway starts SSM connections on demand (lazy tunnels).")
     pfgw_parser.add_argument('target', help='Target instance ID or pattern from config file')
 
     return parser.parse_args(), parser
